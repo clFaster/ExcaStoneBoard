@@ -24,6 +24,7 @@ function App() {
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [currentBoardData, setCurrentBoardData] = useState<ExcalidrawData | null>(null);
+  const [boardDataLoading, setBoardDataLoading] = useState(false);
   const [deepLinkUrl, setDeepLinkUrl] = useState<string | null>(null);
   const [showDeepLinkModal, setShowDeepLinkModal] = useState(false);
 
@@ -101,15 +102,34 @@ function App() {
 
   // Load board data when active board changes
   useEffect(() => {
+    let isActive = true;
+
     const loadData = async () => {
       if (activeBoardId) {
-        const data = await loadBoardData(activeBoardId);
-        setCurrentBoardData(data);
+        setBoardDataLoading(true);
+        try {
+          const data = await loadBoardData(activeBoardId);
+          if (!isActive) return;
+          setCurrentBoardData(data);
+        } catch (e) {
+          if (!isActive) return;
+          console.error('Failed to load board data:', e);
+          setCurrentBoardData(null);
+        } finally {
+          if (isActive) {
+            setBoardDataLoading(false);
+          }
+        }
       } else {
         setCurrentBoardData(null);
+        setBoardDataLoading(false);
       }
     };
     loadData();
+
+    return () => {
+      isActive = false;
+    };
   }, [activeBoardId, loadBoardData]);
 
   // Handle data changes from Excalidraw
@@ -151,13 +171,22 @@ function App() {
         isCollapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
       />
-      <ExcalidrawFrame
-        key={activeBoardId || 'no-board'}
-        boardId={activeBoardId}
-        collaborationLink={collaborationLink}
-        onDataChange={handleDataChange}
-        initialData={currentBoardData}
-      />
+      {activeBoardId && boardDataLoading ? (
+        <div className="excalidraw-frame">
+          <div className="loading-overlay">
+            <div className="spinner"></div>
+            <p>Loading board...</p>
+          </div>
+        </div>
+      ) : (
+        <ExcalidrawFrame
+          key={activeBoardId || 'no-board'}
+          boardId={activeBoardId}
+          collaborationLink={collaborationLink}
+          onDataChange={handleDataChange}
+          initialData={currentBoardData}
+        />
+      )}
       {error && (
         <div className="error-toast">
           <p>{error}</p>

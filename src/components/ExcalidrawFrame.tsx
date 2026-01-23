@@ -113,31 +113,6 @@ export function ExcalidrawFrame({
     }
   }, [collaborationLink]);
 
-  // Sync initial data when board or data changes
-  useEffect(() => {
-    if (!boardId || !excalidrawApiRef.current || !isReady) return;
-
-    const resolvedData = getInitialData();
-    if (!resolvedData) return;
-
-    const baseAppState = excalidrawApiRef.current.getAppState();
-    const mergedAppState = {
-      ...baseAppState,
-      ...resolvedData.appState,
-      theme: resolvedData.appState?.theme || baseAppState.theme,
-      viewBackgroundColor: resolvedData.appState?.viewBackgroundColor || baseAppState.viewBackgroundColor,
-    };
-
-    excalidrawApiRef.current.updateScene({
-      elements: resolvedData.elements || [],
-      appState: mergedAppState,
-    });
-
-    if (resolvedData.files && excalidrawApiRef.current.addFiles) {
-      excalidrawApiRef.current.addFiles(Object.values(resolvedData.files));
-    }
-  }, [boardId, initialData, isReady]);
-
   if (!boardId) {
     return (
       <div className="excalidraw-placeholder">

@@ -92,7 +92,7 @@ export function useBoards() {
     }
   };
 
-  const saveBoardData = async (boardId: string, data: ExcalidrawData): Promise<boolean> => {
+  const saveBoardData = useCallback(async (boardId: string, data: ExcalidrawData): Promise<boolean> => {
     try {
       // Serialize ExcalidrawData to JSON string for storage
       const dataStr = JSON.stringify(data);
@@ -102,9 +102,9 @@ export function useBoards() {
       setError(String(e));
       return false;
     }
-  };
+  }, []);
 
-  const loadBoardData = async (boardId: string): Promise<ExcalidrawData | null> => {
+  const loadBoardData = useCallback(async (boardId: string): Promise<ExcalidrawData | null> => {
     try {
       const dataStr = await invoke<string | null>('load_board_data', { boardId });
       if (!dataStr) {
@@ -118,7 +118,7 @@ export function useBoards() {
       console.error('Failed to load board data:', e);
       return null;
     }
-  };
+  }, []);
 
   return {
     boards,
