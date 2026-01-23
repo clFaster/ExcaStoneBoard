@@ -1,5 +1,5 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
-import { Excalidraw } from '@excalidraw/excalidraw';
+import { useEffect, useRef, useCallback, useState, forwardRef, useImperativeHandle } from 'react';
+import { Excalidraw, exportToBlob, exportToClipboard, exportToSvg, MIME_TYPES } from '@excalidraw/excalidraw';
 import type {
   ExcalidrawImperativeAPI,
   ExcalidrawInitialDataState,
@@ -17,21 +17,102 @@ export interface ExcalidrawData {
 
 interface ExcalidrawFrameProps {
   boardId: string | null;
-  collaborationLink: string | null;
   onDataChange: (data: ExcalidrawData) => void;
   initialData: ExcalidrawData | null;
 }
 
-export function ExcalidrawFrame({
-  boardId,
-  collaborationLink,
-  onDataChange,
-  initialData,
-}: ExcalidrawFrameProps) {
+export interface ExcalidrawFrameHandle {
+  exportPng: () => Promise<void>;
+  copyPng: () => Promise<void>;
+  exportSvg: () => Promise<void>;
+}
+
+export const ExcalidrawFrame = forwardRef<ExcalidrawFrameHandle, ExcalidrawFrameProps>(function ExcalidrawFrame(
+  { boardId, onDataChange, initialData }: ExcalidrawFrameProps,
+  ref
+) {
   const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const saveTimeoutRef = useRef<number | null>(null);
   const [isReady, setIsReady] = useState(false);
   const lastSavedDataRef = useRef<string | null>(null);
+
+  const downloadFile = useCallback((blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const exportPng = useCallback(async () => {
+    if (!excalidrawApiRef.current) return;
+
+    const elements = excalidrawApiRef.current.getSceneElements();
+    const appState = excalidrawApiRef.current.getAppState();
+    const files = excalidrawApiRef.current.getFiles();
+
+    const blob = await exportToBlob({
+      elements: elements as ExcalidrawElement[],
+      appState: {
+        ...appState,
+        exportBackground: true,
+        exportEmbedScene: true,
+      },
+      files,
+      mimeType: MIME_TYPES.png,
+    });
+
+    downloadFile(blob, `drawmesomething-${boardId || 'board'}.png`);
+  }, [boardId, downloadFile]);
+
+  const copyPng = useCallback(async () => {
+    if (!excalidrawApiRef.current) return;
+
+    const elements = excalidrawApiRef.current.getSceneElements();
+    const appState = excalidrawApiRef.current.getAppState();
+    const files = excalidrawApiRef.current.getFiles();
+
+    await exportToClipboard({
+      elements: elements as ExcalidrawElement[],
+      appState: {
+        ...appState,
+        exportBackground: true,
+        exportEmbedScene: true,
+      },
+      files,
+      type: 'png',
+    });
+  }, []);
+
+  const exportSvg = useCallback(async () => {
+    if (!excalidrawApiRef.current) return;
+
+    const elements = excalidrawApiRef.current.getSceneElements();
+    const appState = excalidrawApiRef.current.getAppState();
+    const files = excalidrawApiRef.current.getFiles();
+
+    const svgElement = await exportToSvg({
+      elements: elements as ExcalidrawElement[],
+      appState: {
+        exportBackground: true,
+        exportEmbedScene: true,
+        viewBackgroundColor: appState.viewBackgroundColor,
+      },
+      files,
+    });
+
+    const svgBlob = new Blob([svgElement.outerHTML], { type: 'image/svg+xml' });
+    downloadFile(svgBlob, `drawmesomething-${boardId || 'board'}.svg`);
+  }, [boardId, downloadFile]);
+
+  useImperativeHandle(ref, () => ({
+    exportPng,
+    copyPng,
+    exportSvg,
+  }));
 
   // Debounced save function
   const scheduleSave = useCallback(() => {
@@ -104,15 +185,6 @@ export function ExcalidrawFrame({
     lastSavedDataRef.current = null;
   }, [boardId]);
 
-  // Handle collaboration links - open in external browser
-  useEffect(() => {
-    if (collaborationLink) {
-      // For collaboration links, we need to open them externally
-      // since the Excalidraw React component doesn't support live collaboration
-      window.open(collaborationLink, '_blank');
-    }
-  }, [collaborationLink]);
-
   if (!boardId) {
     return (
       <div className="excalidraw-placeholder">
@@ -127,6 +199,7 @@ export function ExcalidrawFrame({
       </div>
     );
   }
+
 
   // Prepare initial data for Excalidraw
   const getInitialData = (): ExcalidrawInitialDataState | undefined => {
@@ -170,4 +243,4 @@ export function ExcalidrawFrame({
       />
     </div>
   );
-}
+});

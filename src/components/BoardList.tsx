@@ -10,7 +10,10 @@ interface BoardListProps {
   onRenameBoard: (boardId: string, newName: string) => void;
   onDeleteBoard: (boardId: string) => void;
   onDuplicateBoard: (boardId: string, newName: string) => void;
-  onSetCollaborationLink: (boardId: string, link: string | null) => void;
+  onExportPng: () => void;
+  onCopyPng: () => void;
+  onExportSvg: () => void;
+  exportDisabled: boolean;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
 }
@@ -23,7 +26,10 @@ export function BoardList({
   onRenameBoard,
   onDeleteBoard,
   onDuplicateBoard,
-  onSetCollaborationLink,
+  onExportPng,
+  onCopyPng,
+  onExportSvg,
+  exportDisabled,
   isCollapsed,
   onToggleCollapse,
 }: BoardListProps) {
@@ -31,8 +37,6 @@ export function BoardList({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [showMenu, setShowMenu] = useState<string | null>(null);
-  const [showCollabModal, setShowCollabModal] = useState<string | null>(null);
-  const [collabLink, setCollabLink] = useState('');
 
   const handleCreateBoard = (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,18 +63,6 @@ export function BoardList({
   const handleDuplicate = (board: Board) => {
     onDuplicateBoard(board.id, `${board.name} (Copy)`);
     setShowMenu(null);
-  };
-
-  const handleOpenCollabModal = (board: Board) => {
-    setShowCollabModal(board.id);
-    setCollabLink(board.collaboration_link || '');
-    setShowMenu(null);
-  };
-
-  const handleSaveCollabLink = (boardId: string) => {
-    onSetCollaborationLink(boardId, collabLink.trim() || null);
-    setShowCollabModal(null);
-    setCollabLink('');
   };
 
   const formatDate = (dateStr: string) => {
@@ -113,6 +105,50 @@ export function BoardList({
         <button className="toggle-btn" onClick={onToggleCollapse} title="Collapse sidebar">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M15 18l-6-6 6-6" />
+          </svg>
+        </button>
+      </div>
+
+      <div className="board-export-actions">
+        <button
+          type="button"
+          className="export-btn"
+          onClick={onExportPng}
+          disabled={exportDisabled}
+          title="Export PNG"
+          aria-label="Export PNG"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="export-btn"
+          onClick={onCopyPng}
+          disabled={exportDisabled}
+          title="Copy PNG"
+          aria-label="Copy PNG"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="export-btn"
+          onClick={onExportSvg}
+          disabled={exportDisabled}
+          title="Export SVG"
+          aria-label="Export SVG"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M4 4h7l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4z" />
+            <polyline points="9 9 12 12 15 9" />
+            <line x1="12" y1="12" x2="12" y2="17" />
           </svg>
         </button>
       </div>
@@ -169,16 +205,6 @@ export function BoardList({
                   <div className="board-info">
                     <span className="board-name">{board.name}</span>
                     <span className="board-date">{formatDate(board.updated_at)}</span>
-                    {board.collaboration_link && (
-                      <span className="collab-indicator" title="Has collaboration link">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                          <circle cx="9" cy="7" r="4" />
-                          <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                        </svg>
-                      </span>
-                    )}
                   </div>
                   <div className="board-actions">
                     <button
@@ -210,14 +236,6 @@ export function BoardList({
                           </svg>
                           Duplicate
                         </button>
-                        <button onClick={() => handleOpenCollabModal(board)}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                          </svg>
-                          Collaboration Link
-                        </button>
-                        <div className="menu-divider" />
                         <button
                           className="danger"
                           onClick={() => {
@@ -243,34 +261,6 @@ export function BoardList({
         )}
       </div>
 
-      {showCollabModal && (
-        <div className="modal-overlay" onClick={() => setShowCollabModal(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Collaboration Link</h3>
-            <p className="modal-hint">
-              Paste an Excalidraw collaboration room link to quickly access shared sessions.
-            </p>
-            <input
-              type="text"
-              value={collabLink}
-              onChange={(e) => setCollabLink(e.target.value)}
-              placeholder="https://excalidraw.com/#room=..."
-              className="collab-input"
-            />
-            <div className="modal-actions">
-              <button className="cancel-btn" onClick={() => setShowCollabModal(null)}>
-                Cancel
-              </button>
-              <button
-                className="save-btn"
-                onClick={() => handleSaveCollabLink(showCollabModal)}
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

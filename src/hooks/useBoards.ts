@@ -81,16 +81,6 @@ export function useBoards() {
     }
   };
 
-  const setCollaborationLink = async (boardId: string, link: string | null): Promise<boolean> => {
-    try {
-      await invoke('set_collaboration_link', { boardId, link });
-      await loadBoards();
-      return true;
-    } catch (e) {
-      setError(String(e));
-      return false;
-    }
-  };
 
   const saveBoardData = useCallback(async (boardId: string, data: ExcalidrawData): Promise<boolean> => {
     try {
@@ -131,7 +121,6 @@ export function useBoards() {
     deleteBoard,
     setActiveBoard,
     duplicateBoard,
-    setCollaborationLink,
     saveBoardData,
     loadBoardData,
   };
