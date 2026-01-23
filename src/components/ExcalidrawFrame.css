@@ -1,0 +1,85 @@
+.excalidraw-frame {
+  flex: 1;
+  position: relative;
+  background: #121212;
+  width: 100%;
+  height: 100%;
+}
+
+/* Excalidraw component fills the container */
+.excalidraw-frame .excalidraw {
+  width: 100%;
+  height: 100%;
+}
+
+/* Ensure the wrapper takes full space */
+.excalidraw-frame .excalidraw-wrapper {
+  width: 100%;
+  height: 100%;
+}
+
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #121212;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  z-index: 1000;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #333;
+  border-top-color: #4a90d9;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-overlay p {
+  color: #888;
+  font-size: 14px;
+  margin: 0;
+}
+
+.excalidraw-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #121212;
+}
+
+.placeholder-content {
+  text-align: center;
+  color: #666;
+}
+
+.placeholder-content svg {
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.placeholder-content h3 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  font-weight: 500;
+  color: #888;
+}
+
+.placeholder-content p {
+  margin: 0;
+  font-size: 14px;
+}
