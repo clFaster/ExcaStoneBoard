@@ -83,7 +83,6 @@ The built application will be in `src-tauri/target/release/bundle/`.
 2. **Excalidraw Integration**: Each board loads excalidraw.com in an embedded webview
 3. **Data Storage**: Drawing data is extracted from the webview's localStorage and saved per-board
 4. **Collaboration**: You can associate collaboration room links with boards for quick access
-5. **Deep Links**: When you click a supported link, the app opens and prompts you to create a new board or use the current one
 
 ## Project Structure
 
