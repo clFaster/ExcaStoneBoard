@@ -65,7 +65,7 @@ export const ExcalidrawFrame = forwardRef<ExcalidrawFrameHandle, ExcalidrawFrame
       mimeType: MIME_TYPES.png,
     });
 
-    downloadFile(blob, `drawmesomething-${boardId || 'board'}.png`);
+    downloadFile(blob, `excastoneboard-${boardId || 'board'}.png`);
   }, [boardId, downloadFile]);
 
   const copyPng = useCallback(async () => {
@@ -105,7 +105,7 @@ export const ExcalidrawFrame = forwardRef<ExcalidrawFrameHandle, ExcalidrawFrame
     });
 
     const svgBlob = new Blob([svgElement.outerHTML], { type: 'image/svg+xml' });
-    downloadFile(svgBlob, `drawmesomething-${boardId || 'board'}.svg`);
+    downloadFile(svgBlob, `excastoneboard-${boardId || 'board'}.svg`);
   }, [boardId, downloadFile]);
 
   useImperativeHandle(ref, () => ({

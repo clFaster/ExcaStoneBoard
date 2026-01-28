@@ -1,12 +1,12 @@
 [package]
-name = "drawmesomething"
+name = "excastoneboard"
 version = "0.1.0"
 description = "Multi-board manager for Excalidraw"
-authors = ["DrawMeSomething"]
+authors = ["ExaStoneBoard"]
 edition = "2021"
 
 [lib]
-name = "drawmesomething_lib"
+name = "exastoneboard_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

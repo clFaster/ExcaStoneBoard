@@ -1,4 +1,4 @@
-# DrawMeSomething
+# ExaStoneBoard
 
 A multi-board manager for Excalidraw - manage multiple drawing boards without losing access to old ones.
 
@@ -77,16 +77,6 @@ Or on Windows, use `build.bat` which handles the Visual Studio environment setup
 
 The built application will be in `src-tauri/target/release/bundle/`.
 
-## Deep Linking
-
-The app registers two URL protocols:
-- `drawmesomething://` - Custom protocol for the app
-- `excalidraw://` - Opens Excalidraw links directly
-
-After installing the app, clicking links like `drawmesomething://open?url=https://excalidraw.com/#room=...` will open directly in the app, similar to how Zoom meeting links work.
-
-**Note**: Deep link protocol registration happens automatically when you install the built application. During development (`npm run tauri dev`), deep links may not work until you build and install the app.
-
 ## How It Works
 
 1. **Board Management**: The app stores board metadata and data in your system's app data directory
@@ -98,7 +88,7 @@ After installing the app, clicking links like `drawmesomething://open?url=https:
 ## Project Structure
 
 ```
-DrawMeSomething/
+ExaStoneBoard/
 ├── src/                    # React frontend
 │   ├── components/         # UI components
 │   ├── hooks/              # React hooks

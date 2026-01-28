@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    drawmesomething_lib::run()
+    exastoneboard_lib::run()
 }
