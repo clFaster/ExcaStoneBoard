@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "bundle:microsoftstore": "tauri bundle --config src-tauri/tauri.microsoftstore.conf.json"
   },
   "dependencies": {
     "@excalidraw/excalidraw": "^0.18.0",

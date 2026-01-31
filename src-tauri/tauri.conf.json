@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "ExaStoneBoard",
+  "productName": "ExcaStoneBoard",
   "version": "0.1.0",
   "identifier": "com.excastoneboard.app",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "ExaStoneBoard - Excalidraw Board Manager",
+        "title": "ExcaStoneBoard - Excalidraw Board Manager",
         "width": 1400,
         "height": 900,
         "minWidth": 800,
@@ -25,6 +25,7 @@
     }
   },
   "bundle": {
+    "publisher": "Moritz Reis",
     "active": true,
     "targets": "all",
     "icon": [
@@ -38,12 +39,5 @@
     "longDescription": "A wrapper application for Excalidraw that allows managing multiple drawing boards without losing access to old ones. Supports collaboration via sharing mode.",
     "category": "Productivity"
   },
-  "plugins": {
-    "deep-link": {
-      "mobile": [],
-      "desktop": {
-        "schemes": ["excastoneboard", "excalidraw"]
-      }
-    }
-  }
+  "plugins": { }
 }

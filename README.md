@@ -1,4 +1,4 @@
-# ExaStoneBoard
+# ExcaStoneBoard
 
 An unofficial multi-board manager for Excalidraw - manage multiple drawing boards without losing access to old ones.
 
@@ -43,7 +43,7 @@ npm run tauri build
 ## Project Structure
 
 ```
-ExaStoneBoard/
+ExcaStoneBoard/
 ├── src/                    # React frontend
 │   ├── components/         # UI components
 │   ├── hooks/              # React hooks
