@@ -60,9 +60,11 @@ jobs:
 
       - name: Build app (Tauri)
         run: pnpm run tauri build
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
 
-      - name: Upload Windows bundle
+      - name: Upload
         uses: actions/upload-artifact@v6
         with:
-          name: windows-bundle
+          name: build-artifact-${{ matrix.platform }}
           path: src-tauri/target/release/bundle/**
