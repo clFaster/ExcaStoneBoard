@@ -276,6 +276,36 @@ export function BoardList({
         )}
       </div>
 
+      <div className="board-links">
+        <div className="board-links-title">Star on GitHub</div>
+        <a
+          className="board-link"
+          href="https://github.com/clFaster/ExcaStoneBoard"
+          target="_blank"
+          rel="noreferrer"
+        >
+          <span className="board-link-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+              <path d="M12 2a10 10 0 0 0-3.16 19.49c.5.1.68-.22.68-.48v-1.7c-2.76.6-3.35-1.18-3.35-1.18-.45-1.14-1.1-1.44-1.1-1.44-.9-.61.07-.6.07-.6 1 .07 1.53 1.02 1.53 1.02.88 1.52 2.3 1.08 2.86.82.09-.65.34-1.08.62-1.33-2.2-.25-4.52-1.1-4.52-4.9 0-1.08.38-1.96 1.02-2.65-.1-.25-.44-1.27.1-2.65 0 0 .83-.27 2.73 1.01A9.45 9.45 0 0 1 12 6.8a9.5 9.5 0 0 1 2.49.33c1.9-1.28 2.72-1.01 2.72-1.01.55 1.38.21 2.4.1 2.65.63.69 1.02 1.57 1.02 2.65 0 3.8-2.32 4.65-4.53 4.9.35.3.66.9.66 1.82v2.7c0 .26.18.58.69.48A10 10 0 0 0 12 2z" />
+            </svg>
+          </span>
+          <span className="board-link-text">ExcaStoneBoard</span>
+        </a>
+        <a
+          className="board-link"
+          href="https://github.com/excalidraw/excalidraw"
+          target="_blank"
+          rel="noreferrer"
+        >
+          <span className="board-link-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+              <path d="M12 2a10 10 0 0 0-3.16 19.49c.5.1.68-.22.68-.48v-1.7c-2.76.6-3.35-1.18-3.35-1.18-.45-1.14-1.1-1.44-1.1-1.44-.9-.61.07-.6.07-.6 1 .07 1.53 1.02 1.53 1.02.88 1.52 2.3 1.08 2.86.82.09-.65.34-1.08.62-1.33-2.2-.25-4.52-1.1-4.52-4.9 0-1.08.38-1.96 1.02-2.65-.1-.25-.44-1.27.1-2.65 0 0 .83-.27 2.73 1.01A9.45 9.45 0 0 1 12 6.8a9.5 9.5 0 0 1 2.49.33c1.9-1.28 2.72-1.01 2.72-1.01.55 1.38.21 2.4.1 2.65.63.69 1.02 1.57 1.02 2.65 0 3.8-2.32 4.65-4.53 4.9.35.3.66.9.66 1.82v2.7c0 .26.18.58.69.48A10 10 0 0 0 12 2z" />
+            </svg>
+          </span>
+          <span className="board-link-text">Excalidraw</span>
+        </a>
+      </div>
+
     </div>
   );
 }

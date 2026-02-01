@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "ExcaStoneBoard - Excalidraw Board Manager",
+        "title": "ExcaStoneBoard - The Unofficial Excalidraw Board Manager",
         "width": 1400,
         "height": 900,
         "minWidth": 800,
