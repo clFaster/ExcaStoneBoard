@@ -1,5 +1,7 @@
 import { useEffect, useRef, useCallback, useState, forwardRef, useImperativeHandle } from 'react';
 import { Excalidraw, exportToBlob, exportToClipboard, exportToSvg, MIME_TYPES } from '@excalidraw/excalidraw';
+import { save } from '@tauri-apps/plugin-dialog';
+import { writeFile } from '@tauri-apps/plugin-fs';
 import type {
   ExcalidrawImperativeAPI,
   ExcalidrawInitialDataState,
@@ -17,6 +19,7 @@ export interface ExcalidrawData {
 
 interface ExcalidrawFrameProps {
   boardId: string | null;
+  boardName: string | null;
   onDataChange: (data: ExcalidrawData) => void;
   initialData: ExcalidrawData | null;
 }
@@ -28,7 +31,7 @@ export interface ExcalidrawFrameHandle {
 }
 
 export const ExcalidrawFrame = forwardRef<ExcalidrawFrameHandle, ExcalidrawFrameProps>(function ExcalidrawFrame(
-  { boardId, onDataChange, initialData }: ExcalidrawFrameProps,
+  { boardId, boardName, onDataChange, initialData }: ExcalidrawFrameProps,
   ref
 ) {
   const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
@@ -46,6 +49,41 @@ export const ExcalidrawFrame = forwardRef<ExcalidrawFrameHandle, ExcalidrawFrame
     link.remove();
     URL.revokeObjectURL(url);
   }, []);
+
+  const buildExportName = useCallback((extension: string) => {
+    const rawName = (boardName || boardId || 'board').trim();
+    const baseName = rawName.length ? rawName : 'board';
+    const safeBaseName = baseName
+      .replace(/[\\/:*?"<>|]+/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/\.+$/g, '')
+      .slice(0, 80) || 'board';
+    const now = new Date();
+    const pad = (value: number) => String(value).padStart(2, '0');
+    const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(
+      now.getHours()
+    )}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+    return `${safeBaseName}-${timestamp}.${extension}`;
+  }, [boardId, boardName]);
+
+  const saveBlobWithDialog = useCallback(
+    async (blob: Blob, filename: string, extension: string) => {
+      try {
+        const filePath = await save({
+          defaultPath: filename,
+          filters: [{ name: extension.toUpperCase(), extensions: [extension] }],
+        });
+
+        if (!filePath) return;
+        const arrayBuffer = await blob.arrayBuffer();
+        await writeFile(filePath, new Uint8Array(arrayBuffer));
+      } catch (error) {
+        console.warn('Save dialog unavailable, falling back to download.', error);
+        downloadFile(blob, filename);
+      }
+    },
+    [downloadFile]
+  );
 
   const exportPng = useCallback(async () => {
     if (!excalidrawApiRef.current) return;
@@ -65,8 +103,8 @@ export const ExcalidrawFrame = forwardRef<ExcalidrawFrameHandle, ExcalidrawFrame
       mimeType: MIME_TYPES.png,
     });
 
-    downloadFile(blob, `excastoneboard-${boardId || 'board'}.png`);
-  }, [boardId, downloadFile]);
+    await saveBlobWithDialog(blob, buildExportName('png'), 'png');
+  }, [buildExportName, saveBlobWithDialog]);
 
   const copyPng = useCallback(async () => {
     if (!excalidrawApiRef.current) return;
@@ -105,8 +143,8 @@ export const ExcalidrawFrame = forwardRef<ExcalidrawFrameHandle, ExcalidrawFrame
     });
 
     const svgBlob = new Blob([svgElement.outerHTML], { type: 'image/svg+xml' });
-    downloadFile(svgBlob, `excastoneboard-${boardId || 'board'}.svg`);
-  }, [boardId, downloadFile]);
+    await saveBlobWithDialog(svgBlob, buildExportName('svg'), 'svg');
+  }, [buildExportName, saveBlobWithDialog]);
 
   useImperativeHandle(ref, () => ({
     exportPng,

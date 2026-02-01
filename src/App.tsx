@@ -26,6 +26,7 @@ function App() {
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const excalidrawRef = useRef<ExcalidrawFrameHandle | null>(null);
+  const activeBoardName = boards.find((board) => board.id === activeBoardId)?.name || null;
 
   // Load board data when active board changes
   useEffect(() => {
@@ -149,6 +150,7 @@ function App() {
         <ExcalidrawFrame
           key={activeBoardId || 'no-board'}
           boardId={activeBoardId}
+          boardName={activeBoardName}
           onDataChange={handleDataChange}
           initialData={currentBoardData}
           ref={excalidrawRef}
