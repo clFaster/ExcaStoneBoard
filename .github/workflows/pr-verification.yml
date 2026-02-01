@@ -58,10 +58,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Setup AppImage environment (Linux)
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo add-apt-repository universe
+          sudo apt-get update
+          sudo apt-get install -y libfuse2
+
       - name: Build app (Tauri)
         run: pnpm run tauri build
-        env:
-          APPIMAGE_EXTRACT_AND_RUN: 1
 
       - name: Upload
         uses: actions/upload-artifact@v6
