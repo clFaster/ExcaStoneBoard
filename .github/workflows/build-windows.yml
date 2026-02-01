@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  build-windows:
+  build:
     # run on the matrix platform
     runs-on: ${{ matrix.platform }}
     strategy:
