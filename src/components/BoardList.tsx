@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Board } from '../types/board';
 import './BoardList.css';
 
@@ -37,6 +37,19 @@ export function BoardList({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [showMenu, setShowMenu] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleClick = (event: MouseEvent) => {
+      if (!showMenu) return;
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest('.board-menu') || target.closest('.menu-btn')) return;
+      setShowMenu(null);
+    };
+
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [showMenu]);
 
   const handleCreateBoard = (e: React.FormEvent) => {
     e.preventDefault();
