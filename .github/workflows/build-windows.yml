@@ -31,12 +31,9 @@ jobs:
           webkit2gtk-driver \
           xvfb
 
-      - name: install msdgedriver (Windows)
+      - name: install WebDriver (Windows)
         if: matrix.platform == 'windows-latest'
-        run: |
-          cargo install --git https://github.com/chippers/msedgedriver-tool
-          & "$HOME/.cargo/bin/msedgedriver-tool.exe"
-          $PWD.Path >> $env:GITHUB_PATH
+        run: cargo install tauri-driver
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
