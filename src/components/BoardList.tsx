@@ -67,10 +67,12 @@ export function BoardList({
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
-    return date.toLocaleDateString(undefined, {
+    return date.toLocaleString(undefined, {
       month: 'short',
       day: 'numeric',
-      year: date.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined,
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
     });
   };
 
