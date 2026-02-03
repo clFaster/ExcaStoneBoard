@@ -1,5 +1,23 @@
 import React, { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  faArrowUpRightFromSquare,
+  faCheck,
+  faChevronDown,
+  faChevronLeft,
+  faChevronRight,
+  faClone,
+  faCopy,
+  faEllipsisVertical,
+  faFileCode,
+  faFileImage,
+  faGripVertical,
+  faPen,
+  faPlus,
+  faStar,
+  faTrash,
+} from '@fortawesome/free-solid-svg-icons';
 import {
   DndContext,
   DragCancelEvent,
@@ -47,6 +65,7 @@ interface BoardRowProps {
   inFolder: boolean;
   parentFolderId?: string;
   dragHandleMode?: 'row' | 'handle';
+  lockTransform?: boolean;
   disabled?: boolean;
   onClick: () => void;
   children: React.ReactNode;
@@ -55,26 +74,43 @@ interface BoardRowProps {
 type DragHandleContextValue = {
   attributes: DraggableAttributes;
   listeners?: DraggableSyntheticListeners;
+  setActivatorNodeRef?: (node: HTMLElement | null) => void;
 };
 
 const DragHandleContext = React.createContext<DragHandleContextValue | null>(null);
 
 function DragHandle({ className, children, ...rest }: React.HTMLAttributes<HTMLSpanElement>) {
-  const ctx = useContext(DragHandleContext);
   const classes = className ? `drag-handle ${className}` : 'drag-handle';
+
+  return (
+    <span className={classes} {...rest}>
+      {children}
+    </span>
+  );
+}
+
+function DragActivator({ className, children, ...rest }: React.HTMLAttributes<HTMLDivElement>) {
+  const ctx = useContext(DragHandleContext);
+  const classes = className ?? '';
 
   if (!ctx) {
     return (
-      <span className={classes} {...rest}>
+      <div className={classes} {...rest}>
         {children}
-      </span>
+      </div>
     );
   }
 
   return (
-    <span className={classes} {...ctx.attributes} {...ctx.listeners} {...rest}>
+    <div
+      ref={ctx.setActivatorNodeRef}
+      className={classes}
+      {...ctx.attributes}
+      {...ctx.listeners}
+      {...rest}
+    >
       {children}
-    </span>
+    </div>
   );
 }
 
@@ -86,11 +122,19 @@ function BoardRow({
   inFolder,
   parentFolderId,
   dragHandleMode = 'handle',
+  lockTransform,
   disabled,
   onClick,
   children,
 }: BoardRowProps) {
-  const { attributes, listeners, setNodeRef: setDraggableRef, transform, isDragging } = useDraggable({
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setDraggableRef,
+    setActivatorNodeRef,
+    transform,
+    isDragging,
+  } = useDraggable({
     id: dragId,
     disabled,
   });
@@ -104,12 +148,12 @@ function BoardRow({
     setDroppableRef(node);
   };
 
-  const style = transform
+  const style = transform && !lockTransform
     ? { transform: `translate3d(${Math.round(transform.x)}px, ${Math.round(transform.y)}px, 0)` }
     : undefined;
   const dropClass = dropMode ? `drag-${dropMode}` : '';
 
-  const handleContext = dragHandleMode === 'handle' ? { attributes, listeners } : null;
+  const handleContext = dragHandleMode === 'handle' ? { attributes, listeners, setActivatorNodeRef } : null;
   const rowProps = dragHandleMode === 'row' ? { ...attributes, ...listeners } : {};
 
   return (
@@ -352,24 +396,15 @@ export function BoardList({
       return (
         <>
           <button onClick={() => handleStartEdit(board)}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-            </svg>
+            <FontAwesomeIcon icon={faPen} />
             Rename
           </button>
           <button onClick={() => handleDuplicate(board)}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-            </svg>
+            <FontAwesomeIcon icon={faClone} />
             Duplicate
           </button>
           <button className="danger" onClick={() => handleDelete(board)}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="3 6 5 6 21 6" />
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-            </svg>
+            <FontAwesomeIcon icon={faTrash} />
             Delete
           </button>
         </>
@@ -381,10 +416,7 @@ export function BoardList({
     return (
       <>
         <button onClick={() => handleStartFolderEdit(folder.id, folder.name)}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-          </svg>
+          <FontAwesomeIcon icon={faPen} />
           Rename Folder
         </button>
       </>
@@ -764,9 +796,7 @@ export function BoardList({
     return (
       <div className="board-list collapsed">
         <button className="toggle-btn" onClick={onToggleCollapse} title="Expand sidebar">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M9 18l6-6-6-6" />
-          </svg>
+          <FontAwesomeIcon icon={faChevronRight} />
         </button>
         <div className="collapsed-boards">
           {flattenedBoards.map(({ board }) => (
@@ -799,9 +829,7 @@ export function BoardList({
         <div className="board-list-header">
           <h2>Boards</h2>
           <button className="toggle-btn" onClick={onToggleCollapse} title="Collapse sidebar">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
+            <FontAwesomeIcon icon={faChevronLeft} />
           </button>
         </div>
 
@@ -814,11 +842,7 @@ export function BoardList({
           title="Export PNG"
           aria-label="Export PNG"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="7 10 12 15 17 10" />
-            <line x1="12" y1="15" x2="12" y2="3" />
-          </svg>
+          <FontAwesomeIcon icon={faFileImage} />
         </button>
         <button
           type="button"
@@ -828,10 +852,7 @@ export function BoardList({
           title="Copy PNG"
           aria-label="Copy PNG"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-          </svg>
+          <FontAwesomeIcon icon={faCopy} />
         </button>
         <button
           type="button"
@@ -841,11 +862,7 @@ export function BoardList({
           title="Export SVG"
           aria-label="Export SVG"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M4 4h7l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4z" />
-            <polyline points="9 9 12 12 15 9" />
-            <line x1="12" y1="12" x2="12" y2="17" />
-          </svg>
+          <FontAwesomeIcon icon={faFileCode} />
         </button>
       </div>
 
@@ -858,9 +875,7 @@ export function BoardList({
           className="new-board-input"
         />
         <button type="submit" className="new-board-btn" disabled={!newBoardName.trim()}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
+          <FontAwesomeIcon icon={faPlus} />
         </button>
       </form>
 
@@ -873,11 +888,18 @@ export function BoardList({
         ) : (
           items.map((item) =>
             item.type === 'folder' ? (
-              <div
+              <BoardRow
                 key={item.id}
+                dragId={`folder:${item.id}`}
+                itemType="folder"
+                inFolder={false}
                 className={`board-folder ${
                   dragOverTarget?.id === `folder:${item.id}` ? `drag-${dragOverTarget.mode}` : ''
                 }`}
+                dropMode={dragOverTarget?.id === `folder:${item.id}` ? dragOverTarget.mode : null}
+                dragHandleMode="handle"
+                disabled={dragDisabled || editingFolderId === item.id}
+                onClick={() => undefined}
               >
                 {editingFolderId === item.id ? (
                   <div className="board-folder-header">
@@ -899,21 +921,13 @@ export function BoardList({
                         onPointerDown={(e) => e.stopPropagation()}
                       />
                       <button onClick={() => handleSaveFolderEdit(item.id)} className="save-btn">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M20 6L9 17l-5-5" />
-                        </svg>
+                        <FontAwesomeIcon icon={faCheck} />
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <BoardRow
-                    dragId={`folder:${item.id}`}
-                    itemType="folder"
-                    inFolder={false}
+                  <DragActivator
                     className="board-folder-header"
-                    dropMode={null}
-                    dragHandleMode="row"
-                    disabled={dragDisabled}
                     onClick={() => toggleFolderCollapsed(item.id)}
                   >
                     <button
@@ -926,34 +940,21 @@ export function BoardList({
                       }}
                       aria-label={isFolderCollapsed(item.id) ? 'Expand folder' : 'Collapse folder'}
                     >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M9 18l6-6-6-6" />
-                      </svg>
+                      <FontAwesomeIcon icon={isFolderCollapsed(item.id) ? faChevronRight : faChevronDown} />
                     </button>
                     <DragHandle aria-hidden="true">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                        <circle cx="8" cy="6" r="1.5" />
-                        <circle cx="16" cy="6" r="1.5" />
-                        <circle cx="8" cy="12" r="1.5" />
-                        <circle cx="16" cy="12" r="1.5" />
-                        <circle cx="8" cy="18" r="1.5" />
-                        <circle cx="16" cy="18" r="1.5" />
-                      </svg>
+                      <FontAwesomeIcon icon={faGripVertical} />
                     </DragHandle>
                     <span className="folder-name">{item.name}</span>
                     <span className="folder-count">{item.items.length}</span>
-                      <button
-                        className="menu-btn"
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => openMenu(e, 'folder', item.id)}
-                      >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <circle cx="12" cy="12" r="1" />
-                        <circle cx="12" cy="5" r="1" />
-                        <circle cx="12" cy="19" r="1" />
-                      </svg>
+                    <button
+                      className="menu-btn"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => openMenu(e, 'folder', item.id)}
+                    >
+                      <FontAwesomeIcon icon={faEllipsisVertical} />
                     </button>
-                  </BoardRow>
+                  </DragActivator>
                 )}
                 {!isFolderCollapsed(item.id) &&
                   item.items.map((board) => (
@@ -988,23 +989,14 @@ export function BoardList({
                           onPointerDown={(e) => e.stopPropagation()}
                         />
                         <button onClick={() => handleSaveEdit(board.id)} className="save-btn">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M20 6L9 17l-5-5" />
-                          </svg>
+                          <FontAwesomeIcon icon={faCheck} />
                         </button>
                       </div>
                     ) : (
                       <>
                         <div className="board-info">
                           <DragHandle aria-hidden="true">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                              <circle cx="8" cy="6" r="1.5" />
-                              <circle cx="16" cy="6" r="1.5" />
-                              <circle cx="8" cy="12" r="1.5" />
-                              <circle cx="16" cy="12" r="1.5" />
-                              <circle cx="8" cy="18" r="1.5" />
-                              <circle cx="16" cy="18" r="1.5" />
-                            </svg>
+                            <FontAwesomeIcon icon={faGripVertical} />
                           </DragHandle>
                           <div className="board-text">
                             <span className="board-name">{board.name}</span>
@@ -1017,18 +1009,14 @@ export function BoardList({
                             onPointerDown={(e) => e.stopPropagation()}
                             onClick={(e) => openMenu(e, 'board', board.id)}
                           >
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <circle cx="12" cy="12" r="1" />
-                              <circle cx="12" cy="5" r="1" />
-                              <circle cx="12" cy="19" r="1" />
-                            </svg>
+                            <FontAwesomeIcon icon={faEllipsisVertical} />
                           </button>
                         </div>
                       </>
                     )}
                   </BoardRow>
                 ))}
-              </div>
+              </BoardRow>
             ) : (
               <BoardRow
                 key={item.id}
@@ -1060,23 +1048,14 @@ export function BoardList({
                       onPointerDown={(e) => e.stopPropagation()}
                     />
                     <button onClick={() => handleSaveEdit(item.id)} className="save-btn">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M20 6L9 17l-5-5" />
-                      </svg>
+                      <FontAwesomeIcon icon={faCheck} />
                     </button>
                   </div>
                 ) : (
                   <>
                     <div className="board-info">
                       <DragHandle aria-hidden="true">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                          <circle cx="8" cy="6" r="1.5" />
-                          <circle cx="16" cy="6" r="1.5" />
-                          <circle cx="8" cy="12" r="1.5" />
-                          <circle cx="16" cy="12" r="1.5" />
-                          <circle cx="8" cy="18" r="1.5" />
-                          <circle cx="16" cy="18" r="1.5" />
-                        </svg>
+                        <FontAwesomeIcon icon={faGripVertical} />
                       </DragHandle>
                       <div className="board-text">
                         <span className="board-name">{item.name}</span>
@@ -1089,11 +1068,7 @@ export function BoardList({
                         onPointerDown={(e) => e.stopPropagation()}
                         onClick={(e) => openMenu(e, 'board', item.id)}
                       >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <circle cx="12" cy="12" r="1" />
-                          <circle cx="12" cy="5" r="1" />
-                          <circle cx="12" cy="19" r="1" />
-                        </svg>
+                        <FontAwesomeIcon icon={faEllipsisVertical} />
                       </button>
                     </div>
                   </>
@@ -1113,9 +1088,7 @@ export function BoardList({
           rel="noreferrer"
         >
           <span className="board-link-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-              <path d="M12 2a10 10 0 0 0-3.16 19.49c.5.1.68-.22.68-.48v-1.7c-2.76.6-3.35-1.18-3.35-1.18-.45-1.14-1.1-1.44-1.1-1.44-.9-.61.07-.6.07-.6 1 .07 1.53 1.02 1.53 1.02.88 1.52 2.3 1.08 2.86.82.09-.65.34-1.08.62-1.33-2.2-.25-4.52-1.1-4.52-4.9 0-1.08.38-1.96 1.02-2.65-.1-.25-.44-1.27.1-2.65 0 0 .83-.27 2.73 1.01A9.45 9.45 0 0 1 12 6.8a9.5 9.5 0 0 1 2.49.33c1.9-1.28 2.72-1.01 2.72-1.01.55 1.38.21 2.4.1 2.65.63.69 1.02 1.57 1.02 2.65 0 3.8-2.32 4.65-4.53 4.9.35.3.66.9.66 1.82v2.7c0 .26.18.58.69.48A10 10 0 0 0 12 2z" />
-            </svg>
+            <FontAwesomeIcon icon={faStar} />
           </span>
           <span className="board-link-text">ExcaStoneBoard</span>
         </a>
@@ -1126,9 +1099,7 @@ export function BoardList({
           rel="noreferrer"
         >
           <span className="board-link-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-              <path d="M12 2a10 10 0 0 0-3.16 19.49c.5.1.68-.22.68-.48v-1.7c-2.76.6-3.35-1.18-3.35-1.18-.45-1.14-1.1-1.44-1.1-1.44-.9-.61.07-.6.07-.6 1 .07 1.53 1.02 1.53 1.02.88 1.52 2.3 1.08 2.86.82.09-.65.34-1.08.62-1.33-2.2-.25-4.52-1.1-4.52-4.9 0-1.08.38-1.96 1.02-2.65-.1-.25-.44-1.27.1-2.65 0 0 .83-.27 2.73 1.01A9.45 9.45 0 0 1 12 6.8a9.5 9.5 0 0 1 2.49.33c1.9-1.28 2.72-1.01 2.72-1.01.55 1.38.21 2.4.1 2.65.63.69 1.02 1.57 1.02 2.65 0 3.8-2.32 4.65-4.53 4.9.35.3.66.9.66 1.82v2.7c0 .26.18.58.69.48A10 10 0 0 0 12 2z" />
-            </svg>
+            <FontAwesomeIcon icon={faArrowUpRightFromSquare} />
           </span>
           <span className="board-link-text">Excalidraw</span>
         </a>
