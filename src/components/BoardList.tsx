@@ -1,5 +1,6 @@
 import React, { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { confirm } from '@tauri-apps/plugin-dialog';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faArrowUpRightFromSquare,
@@ -325,9 +326,16 @@ export function BoardList({
     setActiveMenu(null);
   };
 
-  const handleDelete = (board: Board) => {
-    if (confirm(`Delete "${board.name}"?`)) {
-      onDeleteBoard(board.id);
+  const handleDelete = async (board: Board) => {
+    const message = `Delete "${board.name}"?`;
+    let shouldDelete = false;
+    try {
+      shouldDelete = await confirm(message, { title: 'Delete board', kind: 'warning' });
+    } catch {
+      shouldDelete = window.confirm(message);
+    }
+    if (shouldDelete) {
+      await onDeleteBoard(board.id);
     }
     setActiveMenu(null);
   };
