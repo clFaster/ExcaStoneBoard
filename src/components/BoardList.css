@@ -263,6 +263,10 @@
   color: #666;
 }
 
+/* =============================================================================
+   Board Item Styles
+   ============================================================================= */
+
 .board-item {
   display: flex;
   align-items: center;
@@ -270,55 +274,86 @@
   padding: 12px;
   margin-bottom: 4px;
   border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.15s ease;
+  cursor: grab;
+  transition: 
+    background 0.15s ease,
+    transform 0.2s cubic-bezier(0.25, 1, 0.5, 1),
+    box-shadow 0.2s ease;
   position: relative;
+  touch-action: none;
 }
 
 .board-item:active {
   cursor: grabbing;
 }
 
-.board-item.is-dragging {
-  opacity: 0.6;
-  background: #2b3946;
+.board-item:hover {
+  background: #2a2a2a;
 }
 
-.board-item.drag-before::before,
-.board-item.drag-after::after,
-.board-folder.drag-before::before,
-.board-folder.drag-after::after,
-.board-folder-header.drag-before::before,
-.board-folder-header.drag-after::after {
+.board-item.active {
+  background: #2d4a6a;
+}
+
+.board-item.active:hover {
+  background: #355a7a;
+}
+
+/* Dragging state - the source item becomes semi-transparent */
+.board-item.is-dragging {
+  opacity: 0.4;
+  background: #2b3946;
+  box-shadow: none;
+}
+
+/* =============================================================================
+   Drop Indicators - Before/After/Inside
+   ============================================================================= */
+
+/* Before indicator - line appears above the item */
+.board-item.drop-before::before,
+.board-folder.drop-before::before {
   content: '';
   position: absolute;
-  left: 8px;
-  right: 8px;
+  left: 4px;
+  right: 4px;
+  top: 0;
   height: 2px;
   background: #4a90d9;
-  border-radius: 999px;
-  z-index: 2;
+  border-radius: 1px;
+  box-shadow: 0 0 6px rgba(74, 144, 217, 0.8);
+  z-index: 10;
+  transform: translateY(-50%);
 }
 
-.board-item.drag-before::before,
-.board-folder.drag-before::before,
-.board-folder-header.drag-before::before {
-  top: -6px;
+/* After indicator - line appears below the item */
+.board-item.drop-after::after,
+.board-folder.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 0;
+  height: 2px;
+  background: #4a90d9;
+  border-radius: 1px;
+  box-shadow: 0 0 6px rgba(74, 144, 217, 0.8);
+  z-index: 10;
+  transform: translateY(50%);
 }
 
-.board-item.drag-after::after,
-.board-folder.drag-after::after,
-.board-folder-header.drag-after::after {
-  bottom: -6px;
+/* Inside indicator - highlight for dropping into folder or creating folder */
+.board-item.drop-inside,
+.board-folder.drop-inside {
+  outline: 2px solid #4a90d9;
+  outline-offset: -2px;
+  background: rgba(74, 144, 217, 0.15) !important;
+  box-shadow: inset 0 0 12px rgba(74, 144, 217, 0.15);
 }
 
-.board-item.drag-folder,
-.board-folder.drag-folder,
-.board-folder-header.drag-folder {
-  outline: 2px dashed rgba(74, 144, 217, 0.6);
-  outline-offset: -4px;
-  background: #243447;
-}
+/* =============================================================================
+   Folder Styles
+   ============================================================================= */
 
 .board-folder {
   background: #20262f;
@@ -329,6 +364,15 @@
   width: 100%;
   box-sizing: border-box;
   position: relative;
+  transition: 
+    transform 0.2s cubic-bezier(0.25, 1, 0.5, 1),
+    box-shadow 0.2s ease,
+    background 0.15s ease;
+}
+
+.board-folder.is-dragging {
+  opacity: 0.4;
+  background: #2b3946;
 }
 
 .board-folder-header {
@@ -342,10 +386,31 @@
   cursor: grab;
   width: 100%;
   box-sizing: border-box;
+  transition: background 0.15s ease;
 }
 
 .board-folder-header:active {
   cursor: grabbing;
+}
+
+.board-folder-header:hover {
+  background: #232b35;
+}
+
+.folder-items {
+  margin-top: 6px;
+}
+
+.folder-items .board-item {
+  background: #1f242c;
+}
+
+.folder-items .board-item:hover {
+  background: #262d38;
+}
+
+.folder-items .board-item.active {
+  background: #2d4a6a;
 }
 
 .folder-toggle {
@@ -357,15 +422,19 @@
   align-items: center;
   justify-content: center;
   padding: 2px;
+  transition: color 0.15s ease;
+}
+
+.folder-toggle:hover {
+  color: #b0c4d8;
 }
 
 .folder-toggle svg {
-  transition: transform 0.15s ease;
-  transform: rotate(90deg);
+  transition: transform 0.2s ease;
 }
 
 .folder-toggle.collapsed svg {
-  transform: rotate(0deg);
+  transform: rotate(-90deg);
 }
 
 .folder-name {
@@ -390,15 +459,6 @@
   padding: 2px 8px;
 }
 
-.board-folder .board-item {
-  margin-bottom: 6px;
-  background: #1f242c;
-}
-
-.board-folder .board-item:last-child {
-  margin-bottom: 0;
-}
-
 .folder-edit {
   display: flex;
   gap: 8px;
@@ -407,34 +467,9 @@
   z-index: 3;
 }
 
-.board-item:hover {
-  background: #2a2a2a;
-}
-
-.board-item.active {
-  background: #2d4a6a;
-}
-
-.board-item.active:hover {
-  background: #355a7a;
-}
-
-.board-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-
-.board-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  flex: 1;
-}
+/* =============================================================================
+   Drag Handle
+   ============================================================================= */
 
 .drag-handle {
   display: inline-flex;
@@ -444,18 +479,66 @@
   height: 16px;
   color: #7b8aa0;
   opacity: 0;
-  transition: opacity 0.15s ease;
-  cursor: grab;
-  touch-action: none;
+  transition: opacity 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
 }
 
 .board-item:hover .drag-handle,
-.board-folder-header:hover .drag-handle {
+.board-folder-header:hover .drag-handle,
+.drag-handle.visible {
   opacity: 0.85;
 }
 
-.board-item:active .drag-handle {
+.drag-handle:hover {
+  color: #a0b0c0;
+}
+
+/* =============================================================================
+   Drag Overlay (Ghost preview while dragging)
+   ============================================================================= */
+
+.drag-overlay {
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    0 4px 12px rgba(0, 0, 0, 0.3);
+  transform: scale(1.02);
+  z-index: 1000;
   cursor: grabbing;
+}
+
+.drag-overlay.board-item {
+  background: #2d4a6a;
+  border: 2px solid #4a90d9;
+}
+
+.drag-overlay.board-folder {
+  background: #283542;
+  border: 2px solid #4a90d9;
+}
+
+.drag-overlay .drag-handle {
+  opacity: 1;
+  color: #4a90d9;
+}
+
+/* =============================================================================
+   Board Info
+   ============================================================================= */
+
+.board-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.board-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
 }
 
 .board-name {
@@ -476,10 +559,49 @@
   white-space: nowrap;
 }
 
+/* =============================================================================
+   Board Edit
+   ============================================================================= */
+
 .board-edit {
+  display: flex;
+  gap: 8px;
+  flex: 1;
   position: relative;
   z-index: 3;
 }
+
+.edit-input {
+  flex: 1;
+  background: #2a2a2a;
+  border: 1px solid #4a90d9;
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: #fff;
+  font-size: 14px;
+}
+
+.edit-input:focus {
+  outline: none;
+}
+
+.board-edit .save-btn {
+  background: #4a90d9;
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  cursor: pointer;
+  padding: 4px 8px;
+  transition: background 0.15s ease;
+}
+
+.board-edit .save-btn:hover {
+  background: #5aa0e9;
+}
+
+/* =============================================================================
+   Board Actions & Menu
+   ============================================================================= */
 
 .collab-indicator {
   display: inline-flex;
@@ -505,14 +627,7 @@
   transition: all 0.15s ease;
 }
 
-.board-item:hover .menu-btn {
-  opacity: 1;
-}
-
-.board-folder-header .menu-btn {
-  opacity: 0;
-}
-
+.board-item:hover .menu-btn,
 .board-folder-header:hover .menu-btn {
   opacity: 1;
 }
@@ -574,40 +689,10 @@
   margin: 4px 0;
 }
 
-.board-edit {
-  display: flex;
-  gap: 8px;
-  flex: 1;
-}
+/* =============================================================================
+   Modal Styles
+   ============================================================================= */
 
-.edit-input {
-  flex: 1;
-  background: #2a2a2a;
-  border: 1px solid #4a90d9;
-  border-radius: 4px;
-  padding: 4px 8px;
-  color: #fff;
-  font-size: 14px;
-}
-
-.edit-input:focus {
-  outline: none;
-}
-
-.board-edit .save-btn {
-  background: #4a90d9;
-  border: none;
-  border-radius: 4px;
-  color: #fff;
-  cursor: pointer;
-  padding: 4px 8px;
-}
-
-.board-edit .save-btn:hover {
-  background: #5aa0e9;
-}
-
-/* Modal styles */
 .modal-overlay {
   position: fixed;
   top: 0;
