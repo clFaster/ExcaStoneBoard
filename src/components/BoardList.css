@@ -160,6 +160,7 @@
 .boards-scroll {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 8px;
 }
 
@@ -280,14 +281,15 @@
   height: 2px;
   background: #4a90d9;
   border-radius: 999px;
+  z-index: 2;
 }
 
 .board-item.drag-before::before {
-  top: 4px;
+  top: -6px;
 }
 
 .board-item.drag-after::after {
-  bottom: 4px;
+  bottom: -6px;
 }
 
 .board-item.drag-folder {
@@ -350,6 +352,33 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.board-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: #7b8aa0;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  cursor: grab;
+}
+
+.board-item:hover .drag-handle {
+  opacity: 0.85;
+}
+
+.board-item:active .drag-handle {
+  cursor: grabbing;
 }
 
 .board-name {

@@ -14,6 +14,7 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
+import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import { Board, BoardListItem } from '../types/board';
 import './BoardList.css';
 
@@ -200,7 +201,7 @@ export function BoardList({
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 },
+      activationConstraint: { delay: 50, tolerance: 6 },
     })
   );
 
@@ -240,8 +241,9 @@ export function BoardList({
     setDragOverTarget({ id: overId, mode });
   };
 
-  const handleDragStart = (_event: DragStartEvent) => {
+  const handleDragStart = (event: DragStartEvent) => {
     setDragOverTarget(null);
+    onSelectBoard(String(event.active.id));
   };
 
   const handleDragMove = (event: DragMoveEvent) => {
@@ -461,6 +463,7 @@ export function BoardList({
       onDragCancel={handleDragCancel}
       onDragEnd={handleDragEnd}
       collisionDetection={pointerWithin}
+      modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
     >
       <div className="board-list">
         <div className="board-list-header">
@@ -623,7 +626,19 @@ export function BoardList({
                     ) : (
                       <>
                         <div className="board-info">
-                          <span className="board-name">{board.name}</span>
+                          <div className="board-title-row">
+                            <span className="drag-handle" aria-hidden="true">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                <circle cx="8" cy="6" r="1.5" />
+                                <circle cx="16" cy="6" r="1.5" />
+                                <circle cx="8" cy="12" r="1.5" />
+                                <circle cx="16" cy="12" r="1.5" />
+                                <circle cx="8" cy="18" r="1.5" />
+                                <circle cx="16" cy="18" r="1.5" />
+                              </svg>
+                            </span>
+                            <span className="board-name">{board.name}</span>
+                          </div>
                           <span className="board-date">{formatDate(board.updated_at)}</span>
                         </div>
                         <div className="board-actions">
@@ -711,7 +726,19 @@ export function BoardList({
                 ) : (
                   <>
                     <div className="board-info">
-                      <span className="board-name">{item.name}</span>
+                      <div className="board-title-row">
+                        <span className="drag-handle" aria-hidden="true">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                            <circle cx="8" cy="6" r="1.5" />
+                            <circle cx="16" cy="6" r="1.5" />
+                            <circle cx="8" cy="12" r="1.5" />
+                            <circle cx="16" cy="12" r="1.5" />
+                            <circle cx="8" cy="18" r="1.5" />
+                            <circle cx="16" cy="18" r="1.5" />
+                          </svg>
+                        </span>
+                        <span className="board-name">{item.name}</span>
+                      </div>
                       <span className="board-date">{formatDate(item.updated_at)}</span>
                     </div>
                     <div className="board-actions">
