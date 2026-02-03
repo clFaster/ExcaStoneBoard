@@ -1,4 +1,5 @@
-import React, { useContext, useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   DndContext,
   DragCancelEvent,
@@ -145,10 +146,14 @@ export function BoardList({
   const [newBoardName, setNewBoardName] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
-  const [showMenu, setShowMenu] = useState<string | null>(null);
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editFolderName, setEditFolderName] = useState('');
-  const [showFolderMenu, setShowFolderMenu] = useState<string | null>(null);
+  const [activeMenu, setActiveMenu] = useState<{
+    type: 'board' | 'folder';
+    id: string;
+    anchorRect: DOMRect;
+  } | null>(null);
+  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>(() => {
     try {
       const stored = localStorage.getItem('boards.collapsedFolders');
@@ -162,19 +167,49 @@ export function BoardList({
     mode: 'before' | 'after' | 'folder';
   } | null>(null);
 
+  const boardsScrollRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
+    if (!activeMenu) return;
     const handleClick = (event: MouseEvent) => {
-      if (!showMenu && !showFolderMenu) return;
       const target = event.target as HTMLElement | null;
       if (!target) return;
-      if (target.closest('.board-menu') || target.closest('.menu-btn')) return;
-      setShowMenu(null);
-      setShowFolderMenu(null);
+      if (target.closest('.board-menu-portal') || target.closest('.menu-btn')) return;
+      setActiveMenu(null);
     };
 
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
-  }, [showMenu, showFolderMenu]);
+  }, [activeMenu]);
+
+  useEffect(() => {
+    if (!activeMenu) return undefined;
+    const closeMenu = () => setActiveMenu(null);
+    const scrollNode = boardsScrollRef.current;
+    scrollNode?.addEventListener('scroll', closeMenu, { passive: true });
+    window.addEventListener('resize', closeMenu);
+    return () => {
+      scrollNode?.removeEventListener('scroll', closeMenu);
+      window.removeEventListener('resize', closeMenu);
+    };
+  }, [activeMenu]);
+
+  useLayoutEffect(() => {
+    if (!activeMenu || !menuRef.current) return;
+    const menuRect = menuRef.current.getBoundingClientRect();
+    const padding = 8;
+    let left = activeMenu.anchorRect.right - menuRect.width;
+    if (left < padding) left = padding;
+    if (left + menuRect.width > window.innerWidth - padding) {
+      left = Math.max(padding, window.innerWidth - menuRect.width - padding);
+    }
+    let top = activeMenu.anchorRect.bottom + 6;
+    if (top + menuRect.height > window.innerHeight - padding) {
+      top = Math.max(padding, activeMenu.anchorRect.top - menuRect.height - 6);
+    }
+    setMenuStyle({ top, left });
+  }, [activeMenu]);
 
   useEffect(() => {
     try {
@@ -208,13 +243,13 @@ export function BoardList({
   const handleStartEdit = (board: Board) => {
     setEditingId(board.id);
     setEditName(board.name);
-    setShowMenu(null);
+    setActiveMenu(null);
   };
 
   const handleStartFolderEdit = (folderId: string, folderName: string) => {
     setEditingFolderId(folderId);
     setEditFolderName(folderName);
-    setShowFolderMenu(null);
+    setActiveMenu(null);
   };
 
   const handleSaveEdit = (boardId: string) => {
@@ -243,7 +278,14 @@ export function BoardList({
 
   const handleDuplicate = (board: Board) => {
     onDuplicateBoard(board.id, `${board.name} (Copy)`);
-    setShowMenu(null);
+    setActiveMenu(null);
+  };
+
+  const handleDelete = (board: Board) => {
+    if (confirm(`Delete "${board.name}"?`)) {
+      onDeleteBoard(board.id);
+    }
+    setActiveMenu(null);
   };
 
   const formatDate = (dateStr: string) => {
@@ -285,6 +327,69 @@ export function BoardList({
       ),
     [items]
   );
+
+  const getBoardById = (boardId: string) => flattenedBoards.find((entry) => entry.board.id === boardId)?.board;
+
+  const getFolderById = (folderId: string) =>
+    items.find((item) => item.type === 'folder' && item.id === folderId) || null;
+
+  const openMenu = (event: React.MouseEvent<HTMLButtonElement>, type: 'board' | 'folder', id: string) => {
+    event.stopPropagation();
+    const anchorRect = event.currentTarget.getBoundingClientRect();
+    setActiveMenu((prev) => {
+      if (prev && prev.type === type && prev.id === id) return null;
+      return { type, id, anchorRect };
+    });
+  };
+
+  const dragDisabled = Boolean(activeMenu || editingId || editingFolderId);
+
+  const menuContent = (() => {
+    if (!activeMenu) return null;
+    if (activeMenu.type === 'board') {
+      const board = getBoardById(activeMenu.id);
+      if (!board) return null;
+      return (
+        <>
+          <button onClick={() => handleStartEdit(board)}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+            </svg>
+            Rename
+          </button>
+          <button onClick={() => handleDuplicate(board)}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+            Duplicate
+          </button>
+          <button className="danger" onClick={() => handleDelete(board)}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            </svg>
+            Delete
+          </button>
+        </>
+      );
+    }
+
+    const folder = getFolderById(activeMenu.id);
+    if (!folder || folder.type !== 'folder') return null;
+    return (
+      <>
+        <button onClick={() => handleStartFolderEdit(folder.id, folder.name)}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+          </svg>
+          Rename Folder
+        </button>
+      </>
+    );
+  })();
 
   const stripBoardType = (board: Board): Board => {
     const maybeTyped = board as Board & { type?: string };
@@ -808,6 +913,7 @@ export function BoardList({
                     className="board-folder-header"
                     dropMode={null}
                     dragHandleMode="row"
+                    disabled={dragDisabled}
                     onClick={() => toggleFolderCollapsed(item.id)}
                   >
                     <button
@@ -836,32 +942,17 @@ export function BoardList({
                     </DragHandle>
                     <span className="folder-name">{item.name}</span>
                     <span className="folder-count">{item.items.length}</span>
-                    <button
-                      className="menu-btn"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowMenu(null);
-                        setShowFolderMenu(showFolderMenu === item.id ? null : item.id);
-                      }}
-                    >
+                      <button
+                        className="menu-btn"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => openMenu(e, 'folder', item.id)}
+                      >
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <circle cx="12" cy="12" r="1" />
                         <circle cx="12" cy="5" r="1" />
                         <circle cx="12" cy="19" r="1" />
                       </svg>
                     </button>
-                    {showFolderMenu === item.id && (
-                      <div className="board-menu" onClick={(e) => e.stopPropagation()}>
-                        <button onClick={() => handleStartFolderEdit(item.id, item.name)}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                          </svg>
-                          Rename Folder
-                        </button>
-                      </div>
-                    )}
                   </BoardRow>
                 )}
                 {!isFolderCollapsed(item.id) &&
@@ -874,7 +965,7 @@ export function BoardList({
                       parentFolderId={item.id}
                       className={`board-item ${board.id === activeBoardId ? 'active' : ''}`}
                       dropMode={dragOverTarget?.id === board.id ? dragOverTarget.mode : null}
-                      disabled={editingId === board.id}
+                      disabled={dragDisabled || editingId === board.id}
                       dragHandleMode="row"
                       onClick={() => editingId !== board.id && onSelectBoard(board.id)}
                     >
@@ -924,11 +1015,7 @@ export function BoardList({
                           <button
                             className="menu-btn"
                             onPointerDown={(e) => e.stopPropagation()}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setShowFolderMenu(null);
-                              setShowMenu(showMenu === board.id ? null : board.id);
-                            }}
+                            onClick={(e) => openMenu(e, 'board', board.id)}
                           >
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                               <circle cx="12" cy="12" r="1" />
@@ -936,39 +1023,6 @@ export function BoardList({
                               <circle cx="12" cy="19" r="1" />
                             </svg>
                           </button>
-                          {showMenu === board.id && (
-                            <div className="board-menu" onClick={(e) => e.stopPropagation()}>
-                              <button onClick={() => handleStartEdit(board)}>
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                </svg>
-                                Rename
-                              </button>
-                              <button onClick={() => handleDuplicate(board)}>
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                                </svg>
-                                Duplicate
-                              </button>
-                              <button
-                                className="danger"
-                                onClick={() => {
-                                  if (confirm(`Delete "${board.name}"?`)) {
-                                    onDeleteBoard(board.id);
-                                  }
-                                  setShowMenu(null);
-                                }}
-                              >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <polyline points="3 6 5 6 21 6" />
-                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                </svg>
-                                Delete
-                              </button>
-                            </div>
-                          )}
                         </div>
                       </>
                     )}
@@ -983,7 +1037,7 @@ export function BoardList({
                 className={`board-item ${item.id === activeBoardId ? 'active' : ''}`}
                 dropMode={dragOverTarget?.id === item.id ? dragOverTarget.mode : null}
                 inFolder={false}
-                disabled={editingId === item.id}
+                disabled={dragDisabled || editingId === item.id}
                 dragHandleMode="row"
                 onClick={() => editingId !== item.id && onSelectBoard(item.id)}
               >
@@ -1033,11 +1087,7 @@ export function BoardList({
                       <button
                         className="menu-btn"
                         onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setShowFolderMenu(null);
-                          setShowMenu(showMenu === item.id ? null : item.id);
-                        }}
+                        onClick={(e) => openMenu(e, 'board', item.id)}
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <circle cx="12" cy="12" r="1" />
@@ -1045,39 +1095,6 @@ export function BoardList({
                           <circle cx="12" cy="19" r="1" />
                         </svg>
                       </button>
-                      {showMenu === item.id && (
-                        <div className="board-menu" onClick={(e) => e.stopPropagation()}>
-                          <button onClick={() => handleStartEdit(item)}>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                            </svg>
-                            Rename
-                          </button>
-                          <button onClick={() => handleDuplicate(item)}>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                            </svg>
-                            Duplicate
-                          </button>
-                          <button
-                            className="danger"
-                            onClick={() => {
-                              if (confirm(`Delete "${item.name}"?`)) {
-                                onDeleteBoard(item.id);
-                              }
-                              setShowMenu(null);
-                            }}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <polyline points="3 6 5 6 21 6" />
-                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                            </svg>
-                            Delete
-                          </button>
-                        </div>
-                      )}
                     </div>
                   </>
                 )}
@@ -1118,6 +1135,18 @@ export function BoardList({
       </div>
 
       </div>
+      {activeMenu && menuContent
+        ? createPortal(
+            <div
+              ref={menuRef}
+              className="board-menu board-menu-portal"
+              style={{ position: 'fixed', ...menuStyle }}
+            >
+              {menuContent}
+            </div>,
+            document.body
+          )
+        : null}
     </DndContext>
   );
 }
