@@ -15,19 +15,39 @@ pub struct Board {
     pub thumbnail: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BoardFolder {
+    pub id: String,
+    pub name: String,
+    pub items: Vec<Board>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum BoardListItem {
+    Board(Board),
+    Folder(BoardFolder),
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BoardsIndex {
-    pub boards: Vec<Board>,
+    pub items: Vec<BoardListItem>,
     pub active_board_id: Option<String>,
 }
 
 impl Default for BoardsIndex {
     fn default() -> Self {
         BoardsIndex {
-            boards: Vec::new(),
+            items: Vec::new(),
             active_board_id: None,
         }
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct BoardsIndexLegacy {
+    pub boards: Vec<Board>,
+    pub active_board_id: Option<String>,
 }
 
 fn get_boards_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -46,7 +66,23 @@ fn load_boards_index(app: &AppHandle) -> Result<BoardsIndex, String> {
     let index_path = get_index_path(app)?;
     if index_path.exists() {
         let content = fs::read_to_string(&index_path).map_err(|e| e.to_string())?;
-        serde_json::from_str(&content).map_err(|e| e.to_string())
+        let value: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+        if value.get("items").is_some() {
+            serde_json::from_value(value).map_err(|e| e.to_string())
+        } else if value.get("boards").is_some() {
+            let legacy: BoardsIndexLegacy =
+                serde_json::from_value(value).map_err(|e| e.to_string())?;
+            Ok(BoardsIndex {
+                items: legacy
+                    .boards
+                    .into_iter()
+                    .map(BoardListItem::Board)
+                    .collect(),
+                active_board_id: legacy.active_board_id,
+            })
+        } else {
+            Ok(BoardsIndex::default())
+        }
     } else {
         Ok(BoardsIndex::default())
     }
@@ -56,6 +92,89 @@ fn save_boards_index(app: &AppHandle, index: &BoardsIndex) -> Result<(), String>
     let index_path = get_index_path(app)?;
     let content = serde_json::to_string_pretty(index).map_err(|e| e.to_string())?;
     fs::write(&index_path, content).map_err(|e| e.to_string())
+}
+
+fn board_exists(items: &[BoardListItem], board_id: &str) -> bool {
+    items.iter().any(|item| match item {
+        BoardListItem::Board(board) => board.id == board_id,
+        BoardListItem::Folder(folder) => folder.items.iter().any(|board| board.id == board_id),
+    })
+}
+
+fn first_board_id(items: &[BoardListItem]) -> Option<String> {
+    for item in items {
+        match item {
+            BoardListItem::Board(board) => return Some(board.id.clone()),
+            BoardListItem::Folder(folder) => {
+                if let Some(board) = folder.items.first() {
+                    return Some(board.id.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn find_board<'a>(items: &'a [BoardListItem], board_id: &str) -> Option<&'a Board> {
+    for item in items {
+        match item {
+            BoardListItem::Board(board) => {
+                if board.id == board_id {
+                    return Some(board);
+                }
+            }
+            BoardListItem::Folder(folder) => {
+                if let Some(board) = folder.items.iter().find(|b| b.id == board_id) {
+                    return Some(board);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn find_board_mut<'a>(items: &'a mut Vec<BoardListItem>, board_id: &str) -> Option<&'a mut Board> {
+    for item in items.iter_mut() {
+        match item {
+            BoardListItem::Board(board) => {
+                if board.id == board_id {
+                    return Some(board);
+                }
+            }
+            BoardListItem::Folder(folder) => {
+                if let Some(board) = folder.items.iter_mut().find(|b| b.id == board_id) {
+                    return Some(board);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn remove_board(items: &mut Vec<BoardListItem>, board_id: &str) -> Option<Board> {
+    let mut index = 0;
+    while index < items.len() {
+        match &mut items[index] {
+            BoardListItem::Board(board) => {
+                if board.id == board_id {
+                    if let BoardListItem::Board(removed) = items.remove(index) {
+                        return Some(removed);
+                    }
+                }
+            }
+            BoardListItem::Folder(folder) => {
+                if let Some(pos) = folder.items.iter().position(|b| b.id == board_id) {
+                    let removed = folder.items.remove(pos);
+                    if folder.items.is_empty() {
+                        items.remove(index);
+                    }
+                    return Some(removed);
+                }
+            }
+        }
+        index += 1;
+    }
+    None
 }
 
 fn get_board_data_path(app: &AppHandle, board_id: &str) -> Result<PathBuf, String> {
@@ -94,7 +213,7 @@ fn create_board(app: AppHandle, name: String) -> Result<Board, String> {
     )
     .map_err(|e| e.to_string())?;
 
-    index.boards.push(board.clone());
+    index.items.push(BoardListItem::Board(board.clone()));
     index.active_board_id = Some(board.id.clone());
     save_boards_index(&app, &index)?;
 
@@ -105,11 +224,7 @@ fn create_board(app: AppHandle, name: String) -> Result<Board, String> {
 fn rename_board(app: AppHandle, board_id: String, new_name: String) -> Result<Board, String> {
     let mut index = load_boards_index(&app)?;
 
-    let board = index
-        .boards
-        .iter_mut()
-        .find(|b| b.id == board_id)
-        .ok_or("Board not found")?;
+    let board = find_board_mut(&mut index.items, &board_id).ok_or("Board not found")?;
 
     board.name = new_name;
     board.updated_at = Utc::now();
@@ -131,11 +246,11 @@ fn delete_board(app: AppHandle, board_id: String) -> Result<(), String> {
     }
 
     // Remove from index
-    index.boards.retain(|b| b.id != board_id);
+    remove_board(&mut index.items, &board_id).ok_or("Board not found")?;
 
     // Update active board if deleted
     if index.active_board_id.as_ref() == Some(&board_id) {
-        index.active_board_id = index.boards.first().map(|b| b.id.clone());
+        index.active_board_id = first_board_id(&index.items);
     }
 
     save_boards_index(&app, &index)?;
@@ -148,7 +263,7 @@ fn set_active_board(app: AppHandle, board_id: String) -> Result<(), String> {
     let mut index = load_boards_index(&app)?;
 
     // Verify board exists
-    if !index.boards.iter().any(|b| b.id == board_id) {
+    if !board_exists(&index.items, &board_id) {
         return Err("Board not found".to_string());
     }
 
@@ -165,7 +280,7 @@ fn save_board_data(app: AppHandle, board_id: String, data: String) -> Result<(),
 
     // Update the board's updated_at timestamp
     let mut index = load_boards_index(&app)?;
-    if let Some(board) = index.boards.iter_mut().find(|b| b.id == board_id) {
+    if let Some(board) = find_board_mut(&mut index.items, &board_id) {
         board.updated_at = Utc::now();
         save_boards_index(&app, &index)?;
     }
@@ -195,11 +310,7 @@ fn set_collaboration_link(
 ) -> Result<(), String> {
     let mut index = load_boards_index(&app)?;
 
-    let board = index
-        .boards
-        .iter_mut()
-        .find(|b| b.id == board_id)
-        .ok_or("Board not found")?;
+    let board = find_board_mut(&mut index.items, &board_id).ok_or("Board not found")?;
 
     board.collaboration_link = link;
     board.updated_at = Utc::now();
@@ -214,11 +325,7 @@ fn duplicate_board(app: AppHandle, board_id: String, new_name: String) -> Result
     let index = load_boards_index(&app)?;
 
     // Find the original board
-    let original = index
-        .boards
-        .iter()
-        .find(|b| b.id == board_id)
-        .ok_or("Board not found")?;
+    let original = find_board(&index.items, &board_id).ok_or("Board not found")?;
 
     // Load original board data
     let original_data = load_board_data(app.clone(), board_id)?;
@@ -240,10 +347,25 @@ fn duplicate_board(app: AppHandle, board_id: String, new_name: String) -> Result
 
     // Update index
     let mut index = load_boards_index(&app)?;
-    index.boards.push(new_board.clone());
+    index.items.push(BoardListItem::Board(new_board.clone()));
     save_boards_index(&app, &index)?;
 
     Ok(new_board)
+}
+
+#[tauri::command]
+fn set_boards_index(app: AppHandle, items: Vec<BoardListItem>) -> Result<BoardsIndex, String> {
+    let mut index = load_boards_index(&app)?;
+    index.items = items;
+    if let Some(active_id) = index.active_board_id.clone() {
+        if !board_exists(&index.items, &active_id) {
+            index.active_board_id = first_board_id(&index.items);
+        }
+    } else {
+        index.active_board_id = first_board_id(&index.items);
+    }
+    save_boards_index(&app, &index)?;
+    Ok(index)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -275,7 +397,8 @@ pub fn run() {
             save_board_data,
             load_board_data,
             set_collaboration_link,
-            duplicate_board
+            duplicate_board,
+            set_boards_index
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

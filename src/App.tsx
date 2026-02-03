@@ -7,7 +7,7 @@ import './App.css';
 
 function App() {
   const {
-    boards,
+    items,
     activeBoardId,
     loading,
     error,
@@ -16,6 +16,7 @@ function App() {
     deleteBoard,
     setActiveBoard,
     duplicateBoard,
+    setBoardsIndex,
     saveBoardData,
     loadBoardData,
   } = useBoards();
@@ -26,7 +27,16 @@ function App() {
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const excalidrawRef = useRef<ExcalidrawFrameHandle | null>(null);
-  const activeBoardName = boards.find((board) => board.id === activeBoardId)?.name || null;
+  const activeBoardName = (() => {
+    for (const item of items) {
+      if (item.type === 'board' && item.id === activeBoardId) return item.name;
+      if (item.type === 'folder') {
+        const board = item.items.find((entry) => entry.id === activeBoardId);
+        if (board) return board.name;
+      }
+    }
+    return null;
+  })();
 
   // Load board data when active board changes
   useEffect(() => {
@@ -125,13 +135,14 @@ function App() {
   return (
     <div className="app">
       <BoardList
-        boards={boards}
+        items={items}
         activeBoardId={activeBoardId}
         onSelectBoard={handleSelectBoard}
         onCreateBoard={createBoard}
         onRenameBoard={renameBoard}
         onDeleteBoard={deleteBoard}
         onDuplicateBoard={duplicateBoard}
+        onUpdateItems={setBoardsIndex}
         onExportPng={handleExportPng}
         onCopyPng={handleCopyPng}
         onExportSvg={handleExportSvg}

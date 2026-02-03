@@ -10,8 +10,21 @@ export interface Board {
   thumbnail: string | null;
 }
 
+export interface BoardListBoard extends Board {
+  type: 'board';
+}
+
+export interface BoardFolder {
+  type: 'folder';
+  id: string;
+  name: string;
+  items: Board[];
+}
+
+export type BoardListItem = BoardListBoard | BoardFolder;
+
 export interface BoardsIndex {
-  boards: Board[];
+  items: BoardListItem[];
   active_board_id: string | null;
 }
 

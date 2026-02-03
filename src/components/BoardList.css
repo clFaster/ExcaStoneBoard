@@ -262,6 +262,76 @@
   position: relative;
 }
 
+.board-item:active {
+  cursor: grabbing;
+}
+
+.board-item.is-dragging {
+  opacity: 0.6;
+  background: #2b3946;
+}
+
+.board-item.drag-before::before,
+.board-item.drag-after::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  background: #4a90d9;
+  border-radius: 999px;
+}
+
+.board-item.drag-before::before {
+  top: 4px;
+}
+
+.board-item.drag-after::after {
+  bottom: 4px;
+}
+
+.board-item.drag-folder {
+  outline: 2px dashed rgba(74, 144, 217, 0.6);
+  outline-offset: -4px;
+  background: #243447;
+}
+
+.board-folder {
+  background: #20262f;
+  border: 1px solid #2b3541;
+  border-radius: 10px;
+  padding: 6px;
+  margin-bottom: 8px;
+}
+
+.board-folder-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: #c2d3e8;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.board-folder .board-item {
+  margin-bottom: 6px;
+  background: #1f242c;
+}
+
+.board-folder .board-item:last-child {
+  margin-bottom: 0;
+}
+
+.folder-edit {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
 .board-item:hover {
   background: #2a2a2a;
 }

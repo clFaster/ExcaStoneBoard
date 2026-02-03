@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Board, BoardsIndex, ExcalidrawData } from '../types/board';
+import { Board, BoardsIndex, BoardListItem, ExcalidrawData } from '../types/board';
 
 export function useBoards() {
-  const [boards, setBoards] = useState<Board[]>([]);
+  const [items, setItems] = useState<BoardListItem[]>([]);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -12,7 +12,7 @@ export function useBoards() {
     try {
       setLoading(true);
       const index = await invoke<BoardsIndex>('get_boards');
-      setBoards(index.boards);
+      setItems(index.items);
       setActiveBoardId(index.active_board_id);
       setError(null);
     } catch (e) {
@@ -111,7 +111,7 @@ export function useBoards() {
   }, []);
 
   return {
-    boards,
+    items,
     activeBoardId,
     loading,
     error,
@@ -121,6 +121,17 @@ export function useBoards() {
     deleteBoard,
     setActiveBoard,
     duplicateBoard,
+    setBoardsIndex: async (nextItems: BoardListItem[]): Promise<boolean> => {
+      try {
+        const index = await invoke<BoardsIndex>('set_boards_index', { items: nextItems });
+        setItems(index.items);
+        setActiveBoardId(index.active_board_id);
+        return true;
+      } catch (e) {
+        setError(String(e));
+        return false;
+      }
+    },
     saveBoardData,
     loadBoardData,
   };

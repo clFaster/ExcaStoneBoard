@@ -1,15 +1,31 @@
-import React, { useEffect, useState } from 'react';
-import { Board } from '../types/board';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  DndContext,
+  DragCancelEvent,
+  DragEndEvent,
+  DragMoveEvent,
+  DragOverEvent,
+  DragStartEvent,
+  PointerSensor,
+  pointerWithin,
+  ClientRect,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import { Board, BoardListItem } from '../types/board';
 import './BoardList.css';
 
 interface BoardListProps {
-  boards: Board[];
+  items: BoardListItem[];
   activeBoardId: string | null;
   onSelectBoard: (boardId: string) => void;
   onCreateBoard: (name: string) => void;
   onRenameBoard: (boardId: string, newName: string) => void;
   onDeleteBoard: (boardId: string) => void;
   onDuplicateBoard: (boardId: string, newName: string) => void;
+  onUpdateItems: (items: BoardListItem[]) => void;
   onExportPng: () => void;
   onCopyPng: () => void;
   onExportSvg: () => void;
@@ -18,14 +34,56 @@ interface BoardListProps {
   onToggleCollapse: () => void;
 }
 
+interface BoardRowProps {
+  boardId: string;
+  className: string;
+  dropMode: 'before' | 'after' | 'folder' | null;
+  inFolder: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}
+
+function BoardRow({ boardId, className, dropMode, inFolder, disabled, onClick, children }: BoardRowProps) {
+  const { attributes, listeners, setNodeRef: setDraggableRef, transform, isDragging } = useDraggable({
+    id: boardId,
+    disabled,
+  });
+  const { setNodeRef: setDroppableRef } = useDroppable({ id: boardId, data: { inFolder } });
+
+  const setNodeRef = (node: HTMLElement | null) => {
+    setDraggableRef(node);
+    setDroppableRef(node);
+  };
+
+  const style = transform
+    ? { transform: `translate3d(${Math.round(transform.x)}px, ${Math.round(transform.y)}px, 0)` }
+    : undefined;
+  const dropClass = dropMode ? `drag-${dropMode}` : '';
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`${className} ${dropClass} ${isDragging ? 'is-dragging' : ''}`}
+      onClick={onClick}
+      {...attributes}
+      {...listeners}
+    >
+      {children}
+    </div>
+  );
+}
+
 export function BoardList({
-  boards,
+  items,
   activeBoardId,
   onSelectBoard,
   onCreateBoard,
   onRenameBoard,
   onDeleteBoard,
   onDuplicateBoard,
+  onUpdateItems,
   onExportPng,
   onCopyPng,
   onExportSvg,
@@ -37,19 +95,27 @@ export function BoardList({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [showMenu, setShowMenu] = useState<string | null>(null);
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [editFolderName, setEditFolderName] = useState('');
+  const [showFolderMenu, setShowFolderMenu] = useState<string | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<{
+    id: string;
+    mode: 'before' | 'after' | 'folder';
+  } | null>(null);
 
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {
-      if (!showMenu) return;
+      if (!showMenu && !showFolderMenu) return;
       const target = event.target as HTMLElement | null;
       if (!target) return;
       if (target.closest('.board-menu') || target.closest('.menu-btn')) return;
       setShowMenu(null);
+      setShowFolderMenu(null);
     };
 
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
-  }, [showMenu]);
+  }, [showMenu, showFolderMenu]);
 
   const handleCreateBoard = (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,12 +131,34 @@ export function BoardList({
     setShowMenu(null);
   };
 
+  const handleStartFolderEdit = (folderId: string, folderName: string) => {
+    setEditingFolderId(folderId);
+    setEditFolderName(folderName);
+    setShowFolderMenu(null);
+  };
+
   const handleSaveEdit = (boardId: string) => {
     if (editName.trim()) {
       onRenameBoard(boardId, editName.trim());
     }
     setEditingId(null);
     setEditName('');
+  };
+
+  const handleSaveFolderEdit = (folderId: string) => {
+    if (editFolderName.trim()) {
+      const nextItems = items.map((item) =>
+        item.type === 'folder' && item.id === folderId
+          ? {
+            ...item,
+            name: editFolderName.trim(),
+          }
+          : item
+      );
+      onUpdateItems(nextItems);
+    }
+    setEditingFolderId(null);
+    setEditFolderName('');
   };
 
   const handleDuplicate = (board: Board) => {
@@ -89,6 +177,257 @@ export function BoardList({
     });
   };
 
+  type FlattenedBoard = { board: Board; folderId?: string };
+
+  const flattenedBoards = useMemo<FlattenedBoard[]>(
+    () =>
+      items.flatMap<FlattenedBoard>((item) =>
+        item.type === 'folder'
+          ? item.items.map((board) => ({ board, folderId: item.id }))
+          : [{ board: item }]
+      ),
+    [items]
+  );
+
+  const stripBoardType = (board: Board): Board => {
+    const maybeTyped = board as Board & { type?: string };
+    if (maybeTyped.type) {
+      const { type: _type, ...rest } = maybeTyped;
+      return rest;
+    }
+    return board;
+  };
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 6 },
+    })
+  );
+
+  const getDropModeFromRects = (
+    activeRect: ClientRect | null | undefined,
+    overRect: ClientRect | null | undefined,
+    overInFolder: boolean
+  ) => {
+    if (!activeRect || !overRect) return overInFolder ? 'after' : 'after';
+    const activeCenterY = activeRect.top + activeRect.height / 2;
+    const ratio = (activeCenterY - overRect.top) / overRect.height;
+
+    if (overInFolder) {
+      return ratio < 0.5 ? 'before' : 'after';
+    }
+
+    if (ratio < 0.25) return 'before';
+    if (ratio > 0.75) return 'after';
+    return 'folder';
+  };
+
+  const updateDropTarget = (event: DragMoveEvent | DragOverEvent) => {
+    const over = event.over;
+    if (!over) {
+      setDragOverTarget(null);
+      return;
+    }
+    const overId = String(over.id);
+    const activeId = String(event.active.id);
+    if (overId === activeId) {
+      setDragOverTarget(null);
+      return;
+    }
+    const overInFolder = Boolean(over.data.current?.inFolder);
+    const activeRect = event.active.rect.current.translated ?? event.active.rect.current.initial;
+    const mode = getDropModeFromRects(activeRect as ClientRect | null | undefined, over.rect as ClientRect | null | undefined, overInFolder);
+    setDragOverTarget({ id: overId, mode });
+  };
+
+  const handleDragStart = (_event: DragStartEvent) => {
+    setDragOverTarget(null);
+  };
+
+  const handleDragMove = (event: DragMoveEvent) => {
+    updateDropTarget(event);
+  };
+
+  const handleDragOver = (event: DragOverEvent) => {
+    updateDropTarget(event);
+  };
+
+  const handleDragCancel = (_event: DragCancelEvent) => {
+    setDragOverTarget(null);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const over = event.over;
+    const sourceId = String(event.active.id);
+    const overId = over ? String(over.id) : null;
+
+    if (!overId || overId === sourceId) {
+      setDragOverTarget(null);
+      return;
+    }
+
+    const overInFolder = Boolean(over?.data.current?.inFolder);
+    const activeRect = event.active.rect.current.translated ?? event.active.rect.current.initial;
+    const resolvedMode = getDropModeFromRects(activeRect as ClientRect | null | undefined, over?.rect as ClientRect | null | undefined, overInFolder);
+    const mode = dragOverTarget?.id === overId ? dragOverTarget.mode : resolvedMode;
+
+    if (mode === 'folder' && !overInFolder) {
+      createFolderFromDrop(sourceId, overId);
+    } else {
+      moveBoardRelative(sourceId, overId, mode === 'folder' ? 'after' : mode);
+    }
+
+    setDragOverTarget(null);
+  };
+
+  const cleanupFolders = (nextItems: BoardListItem[]) => {
+    const seen = new Set<string>();
+    const normalized: BoardListItem[] = [];
+
+    for (const item of nextItems) {
+      if (item.type === 'board') {
+        if (seen.has(item.id)) continue;
+        seen.add(item.id);
+        normalized.push(item);
+        continue;
+      }
+
+      const remaining = item.items.filter((board) => !seen.has(board.id));
+      if (remaining.length === 0) continue;
+      if (remaining.length === 1) {
+        const board = { ...remaining[0], type: 'board' as const };
+        seen.add(board.id);
+        normalized.push(board);
+        continue;
+      }
+
+      remaining.forEach((board) => seen.add(board.id));
+      normalized.push({ ...item, items: remaining });
+    }
+
+    return normalized;
+  };
+
+  useEffect(() => {
+    const normalized = cleanupFolders(items);
+    if (JSON.stringify(normalized) !== JSON.stringify(items)) {
+      onUpdateItems(normalized);
+    }
+  }, [items, onUpdateItems]);
+
+  const moveBoardRelative = (sourceId: string, targetId: string, position: 'before' | 'after') => {
+    if (sourceId === targetId) return;
+    const sourceBoard = flattenedBoards.find((entry) => entry.board.id === sourceId)?.board;
+    if (!sourceBoard) return;
+
+    const filteredItems = items
+      .map((item) => {
+        if (item.type === 'folder') {
+          const remaining = item.items.filter((board) => board.id !== sourceId);
+          if (remaining.length === 0) return null;
+          return {
+            ...item,
+            items: remaining,
+          };
+        }
+        if (item.id === sourceId) return null;
+        return item;
+      })
+      .filter((item): item is BoardListItem => Boolean(item));
+
+    const targetLocation = (() => {
+      for (let index = 0; index < filteredItems.length; index += 1) {
+        const item = filteredItems[index];
+        if (item.type === 'board') {
+          if (item.id === targetId) return { type: 'board' as const, index };
+        } else {
+          const innerIndex = item.items.findIndex((board) => board.id === targetId);
+          if (innerIndex !== -1) {
+            return { type: 'folder' as const, index, innerIndex };
+          }
+        }
+      }
+      return null;
+    })();
+
+    if (!targetLocation) return;
+
+    if (targetLocation.type === 'board') {
+      const insertIndex = targetLocation.index + (position === 'after' ? 1 : 0);
+      const nextItems = [...filteredItems];
+      nextItems.splice(insertIndex, 0, { ...sourceBoard, type: 'board' });
+      onUpdateItems(cleanupFolders(nextItems));
+      return;
+    }
+
+    const folderItem = filteredItems[targetLocation.index];
+    if (!folderItem || folderItem.type !== 'folder') return;
+    const nextItems = [...filteredItems];
+    const nextFolderItems = [...folderItem.items];
+    const insertIndex = targetLocation.innerIndex + (position === 'after' ? 1 : 0);
+    nextFolderItems.splice(insertIndex, 0, stripBoardType(sourceBoard));
+    nextItems[targetLocation.index] = { ...folderItem, items: nextFolderItems };
+    onUpdateItems(cleanupFolders(nextItems));
+  };
+
+  const createFolderFromDrop = (sourceId: string, targetId: string) => {
+    if (sourceId === targetId) return;
+    const sourceBoard = flattenedBoards.find((entry) => entry.board.id === sourceId)?.board;
+    const targetBoard = flattenedBoards.find((entry) => entry.board.id === targetId)?.board;
+    if (!sourceBoard || !targetBoard) return;
+
+    const insertIndex = (() => {
+      let index = 0;
+      for (const item of items) {
+        const isTargetContainer =
+          item.type === 'board'
+            ? item.id === targetId
+            : item.items.some((board) => board.id === targetId);
+        if (isTargetContainer) return index;
+        if (item.type === 'board') {
+          if (item.id !== sourceId && item.id !== targetId) {
+            index += 1;
+          }
+        } else {
+          const remaining = item.items.filter((board) => board.id !== sourceId && board.id !== targetId);
+          if (remaining.length > 0) {
+            index += 1;
+          }
+        }
+      }
+      return index;
+    })();
+
+    const cleanedItems = items
+      .map((item) => {
+        if (item.type === 'folder') {
+          const remaining = item.items.filter((board) => board.id !== sourceId && board.id !== targetId);
+          if (remaining.length === 0) return null;
+          return {
+            ...item,
+            items: remaining,
+          };
+        }
+        if (item.type === 'board') {
+          if (item.id === sourceId || item.id === targetId) return null;
+        }
+        return item;
+      })
+      .filter((item): item is BoardListItem => Boolean(item));
+
+    const folder = {
+      type: 'folder' as const,
+      id: globalThis.crypto?.randomUUID?.() ?? `folder-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      name: targetBoard.name,
+      items: [stripBoardType(targetBoard), stripBoardType(sourceBoard)],
+    };
+
+    const nextItems = [...cleanedItems];
+    nextItems.splice(insertIndex, 0, folder);
+    onUpdateItems(cleanupFolders(nextItems));
+  };
+
+
   if (isCollapsed) {
     return (
       <div className="board-list collapsed">
@@ -98,7 +437,7 @@ export function BoardList({
           </svg>
         </button>
         <div className="collapsed-boards">
-          {boards.map((board) => (
+          {flattenedBoards.map(({ board }) => (
             <button
               key={board.id}
               className={`collapsed-board-btn ${board.id === activeBoardId ? 'active' : ''}`}
@@ -114,15 +453,24 @@ export function BoardList({
   }
 
   return (
-    <div className="board-list">
-      <div className="board-list-header">
-        <h2>Boards</h2>
-        <button className="toggle-btn" onClick={onToggleCollapse} title="Collapse sidebar">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-        </button>
-      </div>
+    <DndContext
+      sensors={sensors}
+      onDragStart={handleDragStart}
+      onDragMove={handleDragMove}
+      onDragOver={handleDragOver}
+      onDragCancel={handleDragCancel}
+      onDragEnd={handleDragEnd}
+      collisionDetection={pointerWithin}
+    >
+      <div className="board-list">
+        <div className="board-list-header">
+          <h2>Boards</h2>
+          <button className="toggle-btn" onClick={onToggleCollapse} title="Collapse sidebar">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+        </div>
 
       <div className="board-export-actions">
         <button
@@ -184,95 +532,242 @@ export function BoardList({
       </form>
 
       <div className="boards-scroll">
-        {boards.length === 0 ? (
+        {items.length === 0 ? (
           <div className="no-boards">
             <p>No boards yet</p>
             <p className="hint">Create a new board to get started</p>
           </div>
         ) : (
-          boards.map((board) => (
-            <div
-              key={board.id}
-              className={`board-item ${board.id === activeBoardId ? 'active' : ''}`}
-              onClick={() => editingId !== board.id && onSelectBoard(board.id)}
-            >
-              {editingId === board.id ? (
-                <div className="board-edit" onClick={(e) => e.stopPropagation()}>
-                  <input
-                    type="text"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSaveEdit(board.id);
-                      if (e.key === 'Escape') setEditingId(null);
-                    }}
-                    autoFocus
-                    className="edit-input"
-                  />
-                  <button onClick={() => handleSaveEdit(board.id)} className="save-btn">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M20 6L9 17l-5-5" />
-                    </svg>
-                  </button>
+          items.map((item) =>
+            item.type === 'folder' ? (
+              <div key={item.id} className="board-folder">
+                <div className="board-folder-header">
+                  {editingFolderId === item.id ? (
+                    <div className="folder-edit" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="text"
+                        value={editFolderName}
+                        onChange={(e) => setEditFolderName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleSaveFolderEdit(item.id);
+                          if (e.key === 'Escape') setEditingFolderId(null);
+                        }}
+                        autoFocus
+                        className="edit-input"
+                      />
+                      <button onClick={() => handleSaveFolderEdit(item.id)} className="save-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M20 6L9 17l-5-5" />
+                        </svg>
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <span>{item.name}</span>
+                      <button
+                        className="menu-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowMenu(null);
+                          setShowFolderMenu(showFolderMenu === item.id ? null : item.id);
+                        }}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <circle cx="12" cy="12" r="1" />
+                          <circle cx="12" cy="5" r="1" />
+                          <circle cx="12" cy="19" r="1" />
+                        </svg>
+                      </button>
+                      {showFolderMenu === item.id && (
+                        <div className="board-menu" onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => handleStartFolderEdit(item.id, item.name)}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                            </svg>
+                            Rename Folder
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
-              ) : (
-                <>
-                  <div className="board-info">
-                    <span className="board-name">{board.name}</span>
-                    <span className="board-date">{formatDate(board.updated_at)}</span>
-                  </div>
-                  <div className="board-actions">
-                    <button
-                      className="menu-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowMenu(showMenu === board.id ? null : board.id);
-                      }}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <circle cx="12" cy="12" r="1" />
-                        <circle cx="12" cy="5" r="1" />
-                        <circle cx="12" cy="19" r="1" />
-                      </svg>
-                    </button>
-                    {showMenu === board.id && (
-                      <div className="board-menu" onClick={(e) => e.stopPropagation()}>
-                        <button onClick={() => handleStartEdit(board)}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                          </svg>
-                          Rename
-                        </button>
-                        <button onClick={() => handleDuplicate(board)}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                          </svg>
-                          Duplicate
-                        </button>
-                        <button
-                          className="danger"
-                          onClick={() => {
-                            if (confirm(`Delete "${board.name}"?`)) {
-                              onDeleteBoard(board.id);
-                            }
-                            setShowMenu(null);
+                {item.items.map((board) => (
+                  <BoardRow
+                    key={board.id}
+                    boardId={board.id}
+                    className={`board-item ${board.id === activeBoardId ? 'active' : ''}`}
+                    dropMode={dragOverTarget?.id === board.id ? dragOverTarget.mode : null}
+                    inFolder
+                    onClick={() => editingId !== board.id && onSelectBoard(board.id)}
+                  >
+                    {editingId === board.id ? (
+                      <div className="board-edit" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSaveEdit(board.id);
+                            if (e.key === 'Escape') setEditingId(null);
                           }}
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <polyline points="3 6 5 6 21 6" />
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                          autoFocus
+                          className="edit-input"
+                        />
+                        <button onClick={() => handleSaveEdit(board.id)} className="save-btn">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M20 6L9 17l-5-5" />
                           </svg>
-                          Delete
                         </button>
                       </div>
+                    ) : (
+                      <>
+                        <div className="board-info">
+                          <span className="board-name">{board.name}</span>
+                          <span className="board-date">{formatDate(board.updated_at)}</span>
+                        </div>
+                        <div className="board-actions">
+                          <button
+                            className="menu-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowFolderMenu(null);
+                              setShowMenu(showMenu === board.id ? null : board.id);
+                            }}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <circle cx="12" cy="12" r="1" />
+                              <circle cx="12" cy="5" r="1" />
+                              <circle cx="12" cy="19" r="1" />
+                            </svg>
+                          </button>
+                          {showMenu === board.id && (
+                            <div className="board-menu" onClick={(e) => e.stopPropagation()}>
+                              <button onClick={() => handleStartEdit(board)}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                </svg>
+                                Rename
+                              </button>
+                              <button onClick={() => handleDuplicate(board)}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                </svg>
+                                Duplicate
+                              </button>
+                              <button
+                                className="danger"
+                                onClick={() => {
+                                  if (confirm(`Delete "${board.name}"?`)) {
+                                    onDeleteBoard(board.id);
+                                  }
+                                  setShowMenu(null);
+                                }}
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <polyline points="3 6 5 6 21 6" />
+                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                </svg>
+                                Delete
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </>
                     )}
+                  </BoardRow>
+                ))}
+              </div>
+            ) : (
+              <BoardRow
+                key={item.id}
+                boardId={item.id}
+                className={`board-item ${item.id === activeBoardId ? 'active' : ''}`}
+                dropMode={dragOverTarget?.id === item.id ? dragOverTarget.mode : null}
+                inFolder={false}
+                onClick={() => editingId !== item.id && onSelectBoard(item.id)}
+              >
+                {editingId === item.id ? (
+                  <div className="board-edit" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSaveEdit(item.id);
+                        if (e.key === 'Escape') setEditingId(null);
+                      }}
+                      autoFocus
+                      className="edit-input"
+                    />
+                    <button onClick={() => handleSaveEdit(item.id)} className="save-btn">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M20 6L9 17l-5-5" />
+                      </svg>
+                    </button>
                   </div>
-                </>
-              )}
-            </div>
-          ))
+                ) : (
+                  <>
+                    <div className="board-info">
+                      <span className="board-name">{item.name}</span>
+                      <span className="board-date">{formatDate(item.updated_at)}</span>
+                    </div>
+                    <div className="board-actions">
+                      <button
+                        className="menu-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowFolderMenu(null);
+                          setShowMenu(showMenu === item.id ? null : item.id);
+                        }}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <circle cx="12" cy="12" r="1" />
+                          <circle cx="12" cy="5" r="1" />
+                          <circle cx="12" cy="19" r="1" />
+                        </svg>
+                      </button>
+                      {showMenu === item.id && (
+                        <div className="board-menu" onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => handleStartEdit(item)}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                            </svg>
+                            Rename
+                          </button>
+                          <button onClick={() => handleDuplicate(item)}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                            Duplicate
+                          </button>
+                          <button
+                            className="danger"
+                            onClick={() => {
+                              if (confirm(`Delete "${item.name}"?`)) {
+                                onDeleteBoard(item.id);
+                              }
+                              setShowMenu(null);
+                            }}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            </svg>
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </BoardRow>
+            )
+          )
         )}
       </div>
 
@@ -306,6 +801,7 @@ export function BoardList({
         </a>
       </div>
 
-    </div>
+      </div>
+    </DndContext>
   );
 }
