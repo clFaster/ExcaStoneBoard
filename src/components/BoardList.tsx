@@ -9,6 +9,7 @@ import {
   PointerSensor,
   pointerWithin,
   ClientRect,
+  UniqueIdentifier,
   useDraggable,
   useDroppable,
   useSensor,
@@ -36,21 +37,36 @@ interface BoardListProps {
 }
 
 interface BoardRowProps {
-  boardId: string;
+  dragId: string;
   className: string;
   dropMode: 'before' | 'after' | 'folder' | null;
+  itemType: 'board' | 'folder';
   inFolder: boolean;
+  parentFolderId?: string;
   disabled?: boolean;
   onClick: () => void;
   children: React.ReactNode;
 }
 
-function BoardRow({ boardId, className, dropMode, inFolder, disabled, onClick, children }: BoardRowProps) {
+function BoardRow({
+  dragId,
+  className,
+  dropMode,
+  itemType,
+  inFolder,
+  parentFolderId,
+  disabled,
+  onClick,
+  children,
+}: BoardRowProps) {
   const { attributes, listeners, setNodeRef: setDraggableRef, transform, isDragging } = useDraggable({
-    id: boardId,
+    id: dragId,
     disabled,
   });
-  const { setNodeRef: setDroppableRef } = useDroppable({ id: boardId, data: { inFolder } });
+  const { setNodeRef: setDroppableRef } = useDroppable({
+    id: dragId,
+    data: { inFolder, itemType, parentFolderId },
+  });
 
   const setNodeRef = (node: HTMLElement | null) => {
     setDraggableRef(node);
@@ -99,6 +115,7 @@ export function BoardList({
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editFolderName, setEditFolderName] = useState('');
   const [showFolderMenu, setShowFolderMenu] = useState<string | null>(null);
+  const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({});
   const [dragOverTarget, setDragOverTarget] = useState<{
     id: string;
     mode: 'before' | 'after' | 'folder';
@@ -178,6 +195,23 @@ export function BoardList({
     });
   };
 
+  const parseDragId = (id: UniqueIdentifier) => {
+    const raw = String(id);
+    if (raw.startsWith('folder:')) {
+      return { type: 'folder' as const, id: raw.slice('folder:'.length), raw };
+    }
+    return { type: 'board' as const, id: raw, raw };
+  };
+
+  const toggleFolderCollapsed = (folderId: string) => {
+    setCollapsedFolders((prev) => ({
+      ...prev,
+      [folderId]: !prev[folderId],
+    }));
+  };
+
+  const isFolderCollapsed = (folderId: string) => Boolean(collapsedFolders[folderId]);
+
   type FlattenedBoard = { board: Board; folderId?: string };
 
   const flattenedBoards = useMemo<FlattenedBoard[]>(
@@ -208,13 +242,13 @@ export function BoardList({
   const getDropModeFromRects = (
     activeRect: ClientRect | null | undefined,
     overRect: ClientRect | null | undefined,
-    overInFolder: boolean
+    allowFolderDrop: boolean
   ) => {
-    if (!activeRect || !overRect) return overInFolder ? 'after' : 'after';
+    if (!activeRect || !overRect) return 'after';
     const activeCenterY = activeRect.top + activeRect.height / 2;
     const ratio = (activeCenterY - overRect.top) / overRect.height;
 
-    if (overInFolder) {
+    if (!allowFolderDrop) {
       return ratio < 0.5 ? 'before' : 'after';
     }
 
@@ -229,21 +263,33 @@ export function BoardList({
       setDragOverTarget(null);
       return;
     }
-    const overId = String(over.id);
-    const activeId = String(event.active.id);
-    if (overId === activeId) {
+    const active = parseDragId(event.active.id);
+    let overItem = parseDragId(over.id);
+    const overInFolder = Boolean(over.data.current?.inFolder);
+    const parentFolderId = over.data.current?.parentFolderId as string | undefined;
+    if (active.type === 'folder' && overInFolder && parentFolderId) {
+      overItem = { type: 'folder' as const, id: parentFolderId, raw: `folder:${parentFolderId}` };
+    }
+    if (overItem.raw === active.raw) {
       setDragOverTarget(null);
       return;
     }
-    const overInFolder = Boolean(over.data.current?.inFolder);
     const activeRect = event.active.rect.current.translated ?? event.active.rect.current.initial;
-    const mode = getDropModeFromRects(activeRect as ClientRect | null | undefined, over.rect as ClientRect | null | undefined, overInFolder);
-    setDragOverTarget({ id: overId, mode });
+    const allowFolderDrop = active.type === 'board' && !overInFolder;
+    const mode = getDropModeFromRects(
+      activeRect as ClientRect | null | undefined,
+      over.rect as ClientRect | null | undefined,
+      allowFolderDrop
+    );
+    setDragOverTarget({ id: overItem.raw, mode });
   };
 
   const handleDragStart = (event: DragStartEvent) => {
     setDragOverTarget(null);
-    onSelectBoard(String(event.active.id));
+    const active = parseDragId(event.active.id);
+    if (active.type === 'board') {
+      onSelectBoard(active.id);
+    }
   };
 
   const handleDragMove = (event: DragMoveEvent) => {
@@ -260,23 +306,50 @@ export function BoardList({
 
   const handleDragEnd = (event: DragEndEvent) => {
     const over = event.over;
-    const sourceId = String(event.active.id);
-    const overId = over ? String(over.id) : null;
+    const active = parseDragId(event.active.id);
+    const overItem = over ? parseDragId(over.id) : null;
 
-    if (!overId || overId === sourceId) {
+    if (!overItem || overItem.raw === active.raw) {
       setDragOverTarget(null);
       return;
     }
 
     const overInFolder = Boolean(over?.data.current?.inFolder);
+    const parentFolderId = over?.data.current?.parentFolderId as string | undefined;
     const activeRect = event.active.rect.current.translated ?? event.active.rect.current.initial;
-    const resolvedMode = getDropModeFromRects(activeRect as ClientRect | null | undefined, over?.rect as ClientRect | null | undefined, overInFolder);
-    const mode = dragOverTarget?.id === overId ? dragOverTarget.mode : resolvedMode;
+    const allowFolderDrop = active.type === 'board' && !overInFolder;
+    const resolvedMode = getDropModeFromRects(
+      activeRect as ClientRect | null | undefined,
+      over?.rect as ClientRect | null | undefined,
+      allowFolderDrop
+    );
+    const mode = dragOverTarget?.id === overItem.raw ? dragOverTarget.mode : resolvedMode;
+
+    if (active.type === 'folder') {
+      const target = overInFolder && parentFolderId ? { type: 'folder' as const, id: parentFolderId } : overItem;
+      if (target.type === 'folder' && target.id === active.id) {
+        setDragOverTarget(null);
+        return;
+      }
+      moveFolderRelative(active.id, target, mode === 'folder' ? 'after' : mode);
+      setDragOverTarget(null);
+      return;
+    }
+
+    if (overItem.type === 'folder') {
+      if (mode === 'folder') {
+        moveBoardIntoFolder(active.id, overItem.id);
+      } else {
+        moveBoardRelativeToFolder(active.id, overItem.id, mode);
+      }
+      setDragOverTarget(null);
+      return;
+    }
 
     if (mode === 'folder' && !overInFolder) {
-      createFolderFromDrop(sourceId, overId);
+      createFolderFromDrop(active.id, overItem.id);
     } else {
-      moveBoardRelative(sourceId, overId, mode === 'folder' ? 'after' : mode);
+      moveBoardRelative(active.id, overItem.id, mode === 'folder' ? 'after' : mode);
     }
 
     setDragOverTarget(null);
@@ -370,6 +443,96 @@ export function BoardList({
     nextFolderItems.splice(insertIndex, 0, stripBoardType(sourceBoard));
     nextItems[targetLocation.index] = { ...folderItem, items: nextFolderItems };
     onUpdateItems(cleanupFolders(nextItems));
+  };
+
+  const moveBoardIntoFolder = (sourceId: string, folderId: string) => {
+    if (!sourceId || !folderId) return;
+    const sourceBoard = flattenedBoards.find((entry) => entry.board.id === sourceId)?.board;
+    if (!sourceBoard) return;
+
+    const filteredItems = items
+      .map((item) => {
+        if (item.type === 'folder') {
+          const remaining = item.items.filter((board) => board.id !== sourceId);
+          if (item.id === folderId) {
+            return {
+              ...item,
+              items: remaining,
+            };
+          }
+          if (remaining.length === 0) return null;
+          return {
+            ...item,
+            items: remaining,
+          };
+        }
+        if (item.id === sourceId) return null;
+        return item;
+      })
+      .filter((item): item is BoardListItem => Boolean(item));
+
+    const nextItems = filteredItems.map((item) => {
+      if (item.type === 'folder' && item.id === folderId) {
+        return {
+          ...item,
+          items: [...item.items, stripBoardType(sourceBoard)],
+        };
+      }
+      return item;
+    });
+
+    onUpdateItems(cleanupFolders(nextItems));
+  };
+
+  const moveBoardRelativeToFolder = (sourceId: string, folderId: string, position: 'before' | 'after') => {
+    if (!sourceId || !folderId) return;
+    const sourceBoard = flattenedBoards.find((entry) => entry.board.id === sourceId)?.board;
+    if (!sourceBoard) return;
+
+    const filteredItems = items
+      .map((item) => {
+        if (item.type === 'folder') {
+          const remaining = item.items.filter((board) => board.id !== sourceId);
+          if (remaining.length === 0) return null;
+          return {
+            ...item,
+            items: remaining,
+          };
+        }
+        if (item.id === sourceId) return null;
+        return item;
+      })
+      .filter((item): item is BoardListItem => Boolean(item));
+
+    const targetIndex = filteredItems.findIndex((item) => item.type === 'folder' && item.id === folderId);
+    if (targetIndex === -1) return;
+
+    const insertIndex = targetIndex + (position === 'after' ? 1 : 0);
+    const nextItems = [...filteredItems];
+    nextItems.splice(insertIndex, 0, { ...sourceBoard, type: 'board' });
+    onUpdateItems(cleanupFolders(nextItems));
+  };
+
+  const moveFolderRelative = (
+    sourceFolderId: string,
+    target: { type: 'board' | 'folder'; id: string },
+    position: 'before' | 'after'
+  ) => {
+    if (!sourceFolderId) return;
+    const sourceIndex = items.findIndex((item) => item.type === 'folder' && item.id === sourceFolderId);
+    if (sourceIndex === -1) return;
+    const sourceItem = items[sourceIndex];
+    if (sourceItem.type !== 'folder') return;
+
+    const remaining = items.filter((_, index) => index !== sourceIndex);
+    const targetIndex = remaining.findIndex((item) =>
+      item.type === 'folder' ? item.id === target.id : item.id === target.id
+    );
+    if (targetIndex === -1) return;
+
+    const insertIndex = targetIndex + (position === 'after' ? 1 : 0);
+    remaining.splice(insertIndex, 0, sourceItem);
+    onUpdateItems(remaining);
   };
 
   const createFolderFromDrop = (sourceId: string, targetId: string) => {
@@ -544,7 +707,15 @@ export function BoardList({
           items.map((item) =>
             item.type === 'folder' ? (
               <div key={item.id} className="board-folder">
-                <div className="board-folder-header">
+                <BoardRow
+                  dragId={`folder:${item.id}`}
+                  itemType="folder"
+                  inFolder={false}
+                  className="board-folder-header"
+                  dropMode={dragOverTarget?.id === `folder:${item.id}` ? dragOverTarget.mode : null}
+                  disabled={editingFolderId === item.id}
+                  onClick={() => toggleFolderCollapsed(item.id)}
+                >
                   {editingFolderId === item.id ? (
                     <div className="folder-edit" onClick={(e) => e.stopPropagation()}>
                       <input
@@ -566,9 +737,35 @@ export function BoardList({
                     </div>
                   ) : (
                     <>
-                      <span>{item.name}</span>
+                      <button
+                        type="button"
+                        className={`folder-toggle ${isFolderCollapsed(item.id) ? 'collapsed' : ''}`}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFolderCollapsed(item.id);
+                        }}
+                        aria-label={isFolderCollapsed(item.id) ? 'Expand folder' : 'Collapse folder'}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M9 18l6-6-6-6" />
+                        </svg>
+                      </button>
+                      <span className="drag-handle" aria-hidden="true">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                          <circle cx="8" cy="6" r="1.5" />
+                          <circle cx="16" cy="6" r="1.5" />
+                          <circle cx="8" cy="12" r="1.5" />
+                          <circle cx="16" cy="12" r="1.5" />
+                          <circle cx="8" cy="18" r="1.5" />
+                          <circle cx="16" cy="18" r="1.5" />
+                        </svg>
+                      </span>
+                      <span className="folder-name">{item.name}</span>
+                      <span className="folder-count">{item.items.length}</span>
                       <button
                         className="menu-btn"
+                        onPointerDown={(e) => e.stopPropagation()}
                         onClick={(e) => {
                           e.stopPropagation();
                           setShowMenu(null);
@@ -594,16 +791,20 @@ export function BoardList({
                       )}
                     </>
                   )}
-                </div>
-                {item.items.map((board) => (
-                  <BoardRow
-                    key={board.id}
-                    boardId={board.id}
-                    className={`board-item ${board.id === activeBoardId ? 'active' : ''}`}
-                    dropMode={dragOverTarget?.id === board.id ? dragOverTarget.mode : null}
-                    inFolder
-                    onClick={() => editingId !== board.id && onSelectBoard(board.id)}
-                  >
+                </BoardRow>
+                {!isFolderCollapsed(item.id) &&
+                  item.items.map((board) => (
+                    <BoardRow
+                      key={board.id}
+                      dragId={board.id}
+                      itemType="board"
+                      inFolder
+                      parentFolderId={item.id}
+                      className={`board-item ${board.id === activeBoardId ? 'active' : ''}`}
+                      dropMode={dragOverTarget?.id === board.id ? dragOverTarget.mode : null}
+                      disabled={editingId === board.id}
+                      onClick={() => editingId !== board.id && onSelectBoard(board.id)}
+                    >
                     {editingId === board.id ? (
                       <div className="board-edit" onClick={(e) => e.stopPropagation()}>
                         <input
@@ -626,24 +827,27 @@ export function BoardList({
                     ) : (
                       <>
                         <div className="board-info">
-                          <div className="board-title-row">
-                            <span className="drag-handle" aria-hidden="true">
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                                <circle cx="8" cy="6" r="1.5" />
-                                <circle cx="16" cy="6" r="1.5" />
-                                <circle cx="8" cy="12" r="1.5" />
-                                <circle cx="16" cy="12" r="1.5" />
-                                <circle cx="8" cy="18" r="1.5" />
-                                <circle cx="16" cy="18" r="1.5" />
-                              </svg>
-                            </span>
-                            <span className="board-name">{board.name}</span>
+                          <div className="board-header-row">
+                            <div className="board-title-row">
+                              <span className="drag-handle" aria-hidden="true">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                  <circle cx="8" cy="6" r="1.5" />
+                                  <circle cx="16" cy="6" r="1.5" />
+                                  <circle cx="8" cy="12" r="1.5" />
+                                  <circle cx="16" cy="12" r="1.5" />
+                                  <circle cx="8" cy="18" r="1.5" />
+                                  <circle cx="16" cy="18" r="1.5" />
+                                </svg>
+                              </span>
+                              <span className="board-name">{board.name}</span>
+                            </div>
+                            <span className="board-date">{formatDate(board.updated_at)}</span>
                           </div>
-                          <span className="board-date">{formatDate(board.updated_at)}</span>
                         </div>
                         <div className="board-actions">
                           <button
                             className="menu-btn"
+                            onPointerDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                               e.stopPropagation();
                               setShowFolderMenu(null);
@@ -698,10 +902,12 @@ export function BoardList({
             ) : (
               <BoardRow
                 key={item.id}
-                boardId={item.id}
+                dragId={item.id}
+                itemType="board"
                 className={`board-item ${item.id === activeBoardId ? 'active' : ''}`}
                 dropMode={dragOverTarget?.id === item.id ? dragOverTarget.mode : null}
                 inFolder={false}
+                disabled={editingId === item.id}
                 onClick={() => editingId !== item.id && onSelectBoard(item.id)}
               >
                 {editingId === item.id ? (
@@ -726,24 +932,27 @@ export function BoardList({
                 ) : (
                   <>
                     <div className="board-info">
-                      <div className="board-title-row">
-                        <span className="drag-handle" aria-hidden="true">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                            <circle cx="8" cy="6" r="1.5" />
-                            <circle cx="16" cy="6" r="1.5" />
-                            <circle cx="8" cy="12" r="1.5" />
-                            <circle cx="16" cy="12" r="1.5" />
-                            <circle cx="8" cy="18" r="1.5" />
-                            <circle cx="16" cy="18" r="1.5" />
-                          </svg>
-                        </span>
-                        <span className="board-name">{item.name}</span>
+                      <div className="board-header-row">
+                        <div className="board-title-row">
+                          <span className="drag-handle" aria-hidden="true">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                              <circle cx="8" cy="6" r="1.5" />
+                              <circle cx="16" cy="6" r="1.5" />
+                              <circle cx="8" cy="12" r="1.5" />
+                              <circle cx="16" cy="12" r="1.5" />
+                              <circle cx="8" cy="18" r="1.5" />
+                              <circle cx="16" cy="18" r="1.5" />
+                            </svg>
+                          </span>
+                          <span className="board-name">{item.name}</span>
+                        </div>
+                        <span className="board-date">{formatDate(item.updated_at)}</span>
                       </div>
-                      <span className="board-date">{formatDate(item.updated_at)}</span>
                     </div>
                     <div className="board-actions">
                       <button
                         className="menu-btn"
+                        onPointerDown={(e) => e.stopPropagation()}
                         onClick={(e) => {
                           e.stopPropagation();
                           setShowFolderMenu(null);

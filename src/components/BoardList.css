@@ -167,43 +167,43 @@
 .board-links {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px 16px 16px;
+  gap: 6px;
+  padding: 8px 12px 12px;
   border-top: 1px solid #333;
 }
 
 .board-links-title {
-  font-size: 11px;
+  font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #6f7a86;
+  color: #5f6b78;
 }
 
 .board-link {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #d7e3f2;
-  font-size: 12px;
+  color: #b9c5d6;
+  font-size: 11px;
   text-decoration: none;
-  background: #232a33;
-  border: 1px solid #2d3844;
+  background: #1f252d;
+  border: 1px solid #27303a;
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 6px 8px;
   transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
 }
 
 .board-link:hover {
-  color: #ffffff;
-  background: #2b3541;
-  border-color: #3a4a5a;
+  color: #e1e8f2;
+  background: #262d36;
+  border-color: #343f4c;
 }
 
 .board-link-icon {
-  width: 18px;
-  height: 18px;
-  border-radius: 6px;
-  background: #1a222c;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: #1a2027;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -273,7 +273,9 @@
 }
 
 .board-item.drag-before::before,
-.board-item.drag-after::after {
+.board-item.drag-after::after,
+.board-folder-header.drag-before::before,
+.board-folder-header.drag-after::after {
   content: '';
   position: absolute;
   left: 8px;
@@ -284,15 +286,18 @@
   z-index: 2;
 }
 
-.board-item.drag-before::before {
+.board-item.drag-before::before,
+.board-folder-header.drag-before::before {
   top: -6px;
 }
 
-.board-item.drag-after::after {
+.board-item.drag-after::after,
+.board-folder-header.drag-after::after {
   bottom: -6px;
 }
 
-.board-item.drag-folder {
+.board-item.drag-folder,
+.board-folder-header.drag-folder {
   outline: 2px dashed rgba(74, 144, 217, 0.6);
   outline-offset: -4px;
   background: #243447;
@@ -307,16 +312,60 @@
 }
 
 .board-folder-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #1c232c;
+  position: relative;
+  cursor: grab;
+}
+
+.board-folder-header:active {
+  cursor: grabbing;
+}
+
+.folder-toggle {
+  background: transparent;
+  border: none;
+  color: #8fa3b8;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+}
+
+.folder-toggle svg {
+  transition: transform 0.15s ease;
+  transform: rotate(90deg);
+}
+
+.folder-toggle.collapsed svg {
+  transform: rotate(0deg);
+}
+
+.folder-name {
   font-size: 12px;
   font-weight: 600;
   color: #c2d3e8;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  padding: 6px 10px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-count {
+  font-size: 11px;
+  color: #8fa3b8;
+  background: #1a2027;
+  border: 1px solid #2b3541;
+  border-radius: 999px;
+  padding: 2px 8px;
 }
 
 .board-folder .board-item {
@@ -354,11 +403,19 @@
   gap: 2px;
 }
 
+.board-header-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
 .board-title-row {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
+  flex: 1;
 }
 
 .drag-handle {
@@ -373,7 +430,8 @@
   cursor: grab;
 }
 
-.board-item:hover .drag-handle {
+.board-item:hover .drag-handle,
+.board-folder-header:hover .drag-handle {
   opacity: 0.85;
 }
 
@@ -392,7 +450,9 @@
 
 .board-date {
   font-size: 11px;
-  color: #888;
+  color: #8a96a8;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .collab-indicator {
@@ -420,6 +480,14 @@
 }
 
 .board-item:hover .menu-btn {
+  opacity: 1;
+}
+
+.board-folder-header .menu-btn {
+  opacity: 0;
+}
+
+.board-folder-header:hover .menu-btn {
   opacity: 1;
 }
 
