@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import {
   DndContext,
   DragCancelEvent,
@@ -10,6 +10,8 @@ import {
   pointerWithin,
   ClientRect,
   UniqueIdentifier,
+  DraggableAttributes,
+  DraggableSyntheticListeners,
   useDraggable,
   useDroppable,
   useSensor,
@@ -43,9 +45,36 @@ interface BoardRowProps {
   itemType: 'board' | 'folder';
   inFolder: boolean;
   parentFolderId?: string;
+  dragHandleMode?: 'row' | 'handle';
   disabled?: boolean;
   onClick: () => void;
   children: React.ReactNode;
+}
+
+type DragHandleContextValue = {
+  attributes: DraggableAttributes;
+  listeners?: DraggableSyntheticListeners;
+};
+
+const DragHandleContext = React.createContext<DragHandleContextValue | null>(null);
+
+function DragHandle({ className, children, ...rest }: React.HTMLAttributes<HTMLSpanElement>) {
+  const ctx = useContext(DragHandleContext);
+  const classes = className ? `drag-handle ${className}` : 'drag-handle';
+
+  if (!ctx) {
+    return (
+      <span className={classes} {...rest}>
+        {children}
+      </span>
+    );
+  }
+
+  return (
+    <span className={classes} {...ctx.attributes} {...ctx.listeners} {...rest}>
+      {children}
+    </span>
+  );
 }
 
 function BoardRow({
@@ -55,6 +84,7 @@ function BoardRow({
   itemType,
   inFolder,
   parentFolderId,
+  dragHandleMode = 'handle',
   disabled,
   onClick,
   children,
@@ -78,17 +108,21 @@ function BoardRow({
     : undefined;
   const dropClass = dropMode ? `drag-${dropMode}` : '';
 
+  const handleContext = dragHandleMode === 'handle' ? { attributes, listeners } : null;
+  const rowProps = dragHandleMode === 'row' ? { ...attributes, ...listeners } : {};
+
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={`${className} ${dropClass} ${isDragging ? 'is-dragging' : ''}`}
-      onClick={onClick}
-      {...attributes}
-      {...listeners}
-    >
-      {children}
-    </div>
+    <DragHandleContext.Provider value={handleContext}>
+      <div
+        ref={setNodeRef}
+        style={style}
+        className={`${className} ${dropClass} ${isDragging ? 'is-dragging' : ''}`}
+        onClick={onClick}
+        {...rowProps}
+      >
+        {children}
+      </div>
+    </DragHandleContext.Provider>
   );
 }
 
@@ -115,7 +149,14 @@ export function BoardList({
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editFolderName, setEditFolderName] = useState('');
   const [showFolderMenu, setShowFolderMenu] = useState<string | null>(null);
-  const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({});
+  const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>(() => {
+    try {
+      const stored = localStorage.getItem('boards.collapsedFolders');
+      return stored ? (JSON.parse(stored) as Record<string, boolean>) : {};
+    } catch {
+      return {};
+    }
+  });
   const [dragOverTarget, setDragOverTarget] = useState<{
     id: string;
     mode: 'before' | 'after' | 'folder';
@@ -134,6 +175,27 @@ export function BoardList({
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, [showMenu, showFolderMenu]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('boards.collapsedFolders', JSON.stringify(collapsedFolders));
+    } catch {
+      // ignore storage errors
+    }
+  }, [collapsedFolders]);
+
+  useEffect(() => {
+    const folderIds = new Set(items.filter((item) => item.type === 'folder').map((item) => item.id));
+    setCollapsedFolders((prev) => {
+      const next: Record<string, boolean> = {};
+      for (const [id, value] of Object.entries(prev)) {
+        if (folderIds.has(id)) {
+          next[id] = value;
+        }
+      }
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+  }, [items]);
 
   const handleCreateBoard = (e: React.FormEvent) => {
     e.preventDefault();
@@ -706,18 +768,30 @@ export function BoardList({
         ) : (
           items.map((item) =>
             item.type === 'folder' ? (
-              <div key={item.id} className="board-folder">
+              <div
+                key={item.id}
+                className={`board-folder ${
+                  dragOverTarget?.id === `folder:${item.id}` ? `drag-${dragOverTarget.mode}` : ''
+                }`}
+              >
                 <BoardRow
                   dragId={`folder:${item.id}`}
                   itemType="folder"
                   inFolder={false}
                   className="board-folder-header"
-                  dropMode={dragOverTarget?.id === `folder:${item.id}` ? dragOverTarget.mode : null}
+                  dropMode={null}
                   disabled={editingFolderId === item.id}
-                  onClick={() => toggleFolderCollapsed(item.id)}
+                  dragHandleMode="row"
+                  onClick={() => {
+                    if (!editingFolderId) toggleFolderCollapsed(item.id);
+                  }}
                 >
                   {editingFolderId === item.id ? (
-                    <div className="folder-edit" onClick={(e) => e.stopPropagation()}>
+                    <div
+                      className="folder-edit"
+                      onClick={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => e.stopPropagation()}
+                    >
                       <input
                         type="text"
                         value={editFolderName}
@@ -728,6 +802,7 @@ export function BoardList({
                         }}
                         autoFocus
                         className="edit-input"
+                        onPointerDown={(e) => e.stopPropagation()}
                       />
                       <button onClick={() => handleSaveFolderEdit(item.id)} className="save-btn">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -751,7 +826,7 @@ export function BoardList({
                           <path d="M9 18l6-6-6-6" />
                         </svg>
                       </button>
-                      <span className="drag-handle" aria-hidden="true">
+                      <DragHandle aria-hidden="true">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                           <circle cx="8" cy="6" r="1.5" />
                           <circle cx="16" cy="6" r="1.5" />
@@ -760,7 +835,7 @@ export function BoardList({
                           <circle cx="8" cy="18" r="1.5" />
                           <circle cx="16" cy="18" r="1.5" />
                         </svg>
-                      </span>
+                      </DragHandle>
                       <span className="folder-name">{item.name}</span>
                       <span className="folder-count">{item.items.length}</span>
                       <button
@@ -806,7 +881,11 @@ export function BoardList({
                       onClick={() => editingId !== board.id && onSelectBoard(board.id)}
                     >
                     {editingId === board.id ? (
-                      <div className="board-edit" onClick={(e) => e.stopPropagation()}>
+                      <div
+                        className="board-edit"
+                        onClick={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => e.stopPropagation()}
+                      >
                         <input
                           type="text"
                           value={editName}
@@ -817,6 +896,7 @@ export function BoardList({
                           }}
                           autoFocus
                           className="edit-input"
+                          onPointerDown={(e) => e.stopPropagation()}
                         />
                         <button onClick={() => handleSaveEdit(board.id)} className="save-btn">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -827,20 +907,18 @@ export function BoardList({
                     ) : (
                       <>
                         <div className="board-info">
-                          <div className="board-header-row">
-                            <div className="board-title-row">
-                              <span className="drag-handle" aria-hidden="true">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                                  <circle cx="8" cy="6" r="1.5" />
-                                  <circle cx="16" cy="6" r="1.5" />
-                                  <circle cx="8" cy="12" r="1.5" />
-                                  <circle cx="16" cy="12" r="1.5" />
-                                  <circle cx="8" cy="18" r="1.5" />
-                                  <circle cx="16" cy="18" r="1.5" />
-                                </svg>
-                              </span>
-                              <span className="board-name">{board.name}</span>
-                            </div>
+                          <DragHandle aria-hidden="true">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                              <circle cx="8" cy="6" r="1.5" />
+                              <circle cx="16" cy="6" r="1.5" />
+                              <circle cx="8" cy="12" r="1.5" />
+                              <circle cx="16" cy="12" r="1.5" />
+                              <circle cx="8" cy="18" r="1.5" />
+                              <circle cx="16" cy="18" r="1.5" />
+                            </svg>
+                          </DragHandle>
+                          <div className="board-text">
+                            <span className="board-name">{board.name}</span>
                             <span className="board-date">{formatDate(board.updated_at)}</span>
                           </div>
                         </div>
@@ -911,7 +989,11 @@ export function BoardList({
                 onClick={() => editingId !== item.id && onSelectBoard(item.id)}
               >
                 {editingId === item.id ? (
-                  <div className="board-edit" onClick={(e) => e.stopPropagation()}>
+                  <div
+                    className="board-edit"
+                    onClick={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                  >
                     <input
                       type="text"
                       value={editName}
@@ -922,6 +1004,7 @@ export function BoardList({
                       }}
                       autoFocus
                       className="edit-input"
+                      onPointerDown={(e) => e.stopPropagation()}
                     />
                     <button onClick={() => handleSaveEdit(item.id)} className="save-btn">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -932,20 +1015,18 @@ export function BoardList({
                 ) : (
                   <>
                     <div className="board-info">
-                      <div className="board-header-row">
-                        <div className="board-title-row">
-                          <span className="drag-handle" aria-hidden="true">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                              <circle cx="8" cy="6" r="1.5" />
-                              <circle cx="16" cy="6" r="1.5" />
-                              <circle cx="8" cy="12" r="1.5" />
-                              <circle cx="16" cy="12" r="1.5" />
-                              <circle cx="8" cy="18" r="1.5" />
-                              <circle cx="16" cy="18" r="1.5" />
-                            </svg>
-                          </span>
-                          <span className="board-name">{item.name}</span>
-                        </div>
+                      <DragHandle aria-hidden="true">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                          <circle cx="8" cy="6" r="1.5" />
+                          <circle cx="16" cy="6" r="1.5" />
+                          <circle cx="8" cy="12" r="1.5" />
+                          <circle cx="16" cy="12" r="1.5" />
+                          <circle cx="8" cy="18" r="1.5" />
+                          <circle cx="16" cy="18" r="1.5" />
+                        </svg>
+                      </DragHandle>
+                      <div className="board-text">
+                        <span className="board-name">{item.name}</span>
                         <span className="board-date">{formatDate(item.updated_at)}</span>
                       </div>
                     </div>
