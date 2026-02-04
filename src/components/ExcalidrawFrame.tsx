@@ -20,7 +20,7 @@ export interface ExcalidrawData {
 interface ExcalidrawFrameProps {
   boardId: string | null;
   boardName: string | null;
-  onDataChange: (data: ExcalidrawData) => void;
+  onDataChange: (boardId: string, data: ExcalidrawData) => Promise<void>;
   initialData: ExcalidrawData | null;
 }
 
@@ -28,6 +28,7 @@ export interface ExcalidrawFrameHandle {
   exportPng: () => Promise<void>;
   copyPng: () => Promise<void>;
   exportSvg: () => Promise<void>;
+  flushSave: () => Promise<void>;
 }
 
 export const ExcalidrawFrame = forwardRef<ExcalidrawFrameHandle, ExcalidrawFrameProps>(function ExcalidrawFrame(
@@ -146,11 +147,47 @@ export const ExcalidrawFrame = forwardRef<ExcalidrawFrameHandle, ExcalidrawFrame
     await saveBlobWithDialog(svgBlob, buildExportName('svg'), 'svg');
   }, [buildExportName, saveBlobWithDialog]);
 
-  useImperativeHandle(ref, () => ({
-    exportPng,
-    copyPng,
-    exportSvg,
-  }));
+  const collectData = useCallback((): ExcalidrawData | null => {
+    if (!excalidrawApiRef.current) return null;
+
+    const elements = excalidrawApiRef.current.getSceneElements();
+    const appState = excalidrawApiRef.current.getAppState();
+    const files = excalidrawApiRef.current.getFiles();
+
+    return {
+      elements: elements as ExcalidrawElement[],
+      appState: {
+        viewBackgroundColor: appState.viewBackgroundColor,
+        currentItemStrokeColor: appState.currentItemStrokeColor,
+        currentItemBackgroundColor: appState.currentItemBackgroundColor,
+        currentItemFillStyle: appState.currentItemFillStyle,
+        currentItemStrokeWidth: appState.currentItemStrokeWidth,
+        currentItemRoughness: appState.currentItemRoughness,
+        currentItemOpacity: appState.currentItemOpacity,
+        currentItemFontFamily: appState.currentItemFontFamily,
+        currentItemFontSize: appState.currentItemFontSize,
+        currentItemTextAlign: appState.currentItemTextAlign,
+        currentItemStartArrowhead: appState.currentItemStartArrowhead,
+        currentItemEndArrowhead: appState.currentItemEndArrowhead,
+        currentItemRoundness: appState.currentItemRoundness,
+        gridSize: appState.gridSize,
+        gridStep: appState.gridStep,
+        gridModeEnabled: appState.gridModeEnabled,
+        zenModeEnabled: appState.zenModeEnabled,
+        theme: appState.theme,
+      },
+      files: files,
+    };
+  }, []);
+
+  const saveData = useCallback(async (data: ExcalidrawData) => {
+    if (!boardId) return;
+    const dataStr = JSON.stringify(data);
+    if (dataStr !== lastSavedDataRef.current) {
+      lastSavedDataRef.current = dataStr;
+      await onDataChange(boardId, data);
+    }
+  }, [boardId, onDataChange]);
 
   // Debounced save function
   const scheduleSave = useCallback(() => {
@@ -159,45 +196,30 @@ export const ExcalidrawFrame = forwardRef<ExcalidrawFrameHandle, ExcalidrawFrame
     }
 
     saveTimeoutRef.current = window.setTimeout(() => {
-      if (!excalidrawApiRef.current || !boardId) return;
-
-      const elements = excalidrawApiRef.current.getSceneElements();
-      const appState = excalidrawApiRef.current.getAppState();
-      const files = excalidrawApiRef.current.getFiles();
-
-      const data: ExcalidrawData = {
-        elements: elements as ExcalidrawElement[],
-        appState: {
-          viewBackgroundColor: appState.viewBackgroundColor,
-          currentItemStrokeColor: appState.currentItemStrokeColor,
-          currentItemBackgroundColor: appState.currentItemBackgroundColor,
-          currentItemFillStyle: appState.currentItemFillStyle,
-          currentItemStrokeWidth: appState.currentItemStrokeWidth,
-          currentItemRoughness: appState.currentItemRoughness,
-          currentItemOpacity: appState.currentItemOpacity,
-          currentItemFontFamily: appState.currentItemFontFamily,
-          currentItemFontSize: appState.currentItemFontSize,
-          currentItemTextAlign: appState.currentItemTextAlign,
-          currentItemStartArrowhead: appState.currentItemStartArrowhead,
-          currentItemEndArrowhead: appState.currentItemEndArrowhead,
-          currentItemRoundness: appState.currentItemRoundness,
-          gridSize: appState.gridSize,
-          gridStep: appState.gridStep,
-          gridModeEnabled: appState.gridModeEnabled,
-          zenModeEnabled: appState.zenModeEnabled,
-          theme: appState.theme,
-        },
-        files: files,
-      };
-
-      // Only save if data has actually changed
-      const dataStr = JSON.stringify(data);
-      if (dataStr !== lastSavedDataRef.current) {
-        lastSavedDataRef.current = dataStr;
-        onDataChange(data);
-      }
+      if (!boardId) return;
+      const data = collectData();
+      if (!data) return;
+      void saveData(data);
     }, 1000); // Save 1 second after last change
-  }, [boardId, onDataChange]);
+  }, [boardId, collectData, saveData]);
+
+  const flushSave = useCallback(async () => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    if (!boardId) return;
+    const data = collectData();
+    if (!data) return;
+    await saveData(data);
+  }, [boardId, collectData, saveData]);
+
+  useImperativeHandle(ref, () => ({
+    exportPng,
+    copyPng,
+    exportSvg,
+    flushSave,
+  }));
 
   // Handle Excalidraw changes
   const handleChange = useCallback(

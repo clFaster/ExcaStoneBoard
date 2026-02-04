@@ -71,11 +71,9 @@ function App() {
   }, [activeBoardId, loadBoardData]);
 
   // Handle data changes from Excalidraw
-  const handleDataChange = useCallback(async (data: ExcalidrawData) => {
-    if (activeBoardId) {
-      await saveBoardData(activeBoardId, data);
-    }
-  }, [activeBoardId, saveBoardData]);
+  const handleDataChange = useCallback(async (boardId: string, data: ExcalidrawData) => {
+    await saveBoardData(boardId, data);
+  }, [saveBoardData]);
 
   const runExport = useCallback(
     async (action: () => Promise<void>) => {
@@ -120,6 +118,10 @@ function App() {
 
   // Handle board selection
   const handleSelectBoard = async (boardId: string) => {
+    if (boardId === activeBoardId) return;
+    if (excalidrawRef.current) {
+      await excalidrawRef.current.flushSave();
+    }
     await setActiveBoard(boardId);
   };
 
