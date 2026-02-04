@@ -850,11 +850,21 @@ fn set_boards_index(app: AppHandle, items: Vec<BoardListItem>) -> Result<BoardsI
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_deep_link::init());
+
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }));
+
+    builder
         .setup(|app| {
             // Handle deep links - when the app is opened via a URL
             #[cfg(desktop)]
