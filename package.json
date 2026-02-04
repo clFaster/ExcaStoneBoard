@@ -10,7 +10,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "bundle:microsoftstore": "tauri bundle --config src-tauri/tauri.microsoftstore.conf.json"
+    "bundle:microsoftstore": "tauri bundle --config src-tauri/tauri.microsoftstore.conf.json",
+    "bundle:windows": "tauri bundle --config src-tauri/tauri.windows.conf.json",
+    "tauri:windows:build": "tauri-windows-bundle build"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -33,6 +35,7 @@
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
     "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "vite": "^7.0.4",
+    "@choochmeque/tauri-windows-bundle": "^0.1.14"
   }
 }

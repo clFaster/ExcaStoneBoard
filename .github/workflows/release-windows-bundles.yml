@@ -1,0 +1,60 @@
+name: Release Windows Bundles
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add Rust targets
+        run: rustup target add x86_64-pc-windows-msvc aarch64-pc-windows-msvc
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@1e1c8eafbd745f64b1ef30a7d7ed7965034c486c
+        with:
+          package_json_file: ./package.json
+          cache: true
+          cache_dependency_path: ./pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install msixbundle-cli
+        run: cargo install msixbundle-cli
+
+      - name: Build MSI
+        run: pnpm run bundle:windows
+
+      - name: Build MSIX bundle
+        run: pnpm run tauri:windows:build --arch x64,arm64 --runner pnpm
+
+      - name: Upload MSI
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-msi
+          path: src-tauri/target/release/bundle/msi/**
+
+      - name: Upload MSIX bundle
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-msixbundle
+          path: src-tauri/target/msix/**

@@ -1,0 +1,18 @@
+{
+  "publisher": "CN=6CC9D2F4-7FD0-4B42-84CA-53C113FA4D55",
+  "publisherDisplayName": "Moritz Reis",
+  "capabilities": {
+    "general": [
+      "internetClient"
+    ]
+  },
+  "extensions": {
+    "shareTarget": false,
+    "fileAssociations": [],
+    "protocolHandlers": []
+  },
+  "signing": {
+    "pfx": null,
+    "pfxPassword": null
+  }
+}

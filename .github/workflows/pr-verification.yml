@@ -65,11 +65,5 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libfuse2
 
-      - name: Build app (Tauri)
-        run: pnpm run tauri build
-
-      - name: Upload
-        uses: actions/upload-artifact@v6
-        with:
-          name: build-artifact-${{ matrix.platform }}
-          path: src-tauri/target/release/bundle/**
+      - name: Build app (Tauri, no bundle)
+        run: pnpm run tauri build -- --no-bundle
