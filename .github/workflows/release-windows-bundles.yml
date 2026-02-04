@@ -5,12 +5,16 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 30
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Tauri dependencies
+        run: |
+          cargo install tauri-driver
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -38,20 +42,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install msixbundle-cli
-        run: cargo install msixbundle-cli
-
       - name: Build MSI
-        run: pnpm run bundle:windows:msi
-
-      - name: Build MSIX bundle
-        run: pnpm run tauri:windows:build --arch x64,arm64 --runner pnpm
+        run: pnpm run tauri build
 
       - name: Upload MSI
         uses: actions/upload-artifact@v6
         with:
           name: windows-msi
           path: src-tauri/target/release/bundle/msi/**
+
+      - name: Install msixbundle-cli
+        run: cargo install msixbundle-cli
+
+      - name: Build MSIX bundle
+        run: pnpm run tauri:windows:build --arch x64,arm64 --runner pnpm
 
       - name: Upload MSIX bundle
         uses: actions/upload-artifact@v6

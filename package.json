@@ -10,7 +10,6 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "bundle:windows:msi": "tauri bundle --config src-tauri/tauri.windows-msi.conf.json",
     "tauri:windows:build": "tauri-windows-bundle build"
   },
   "dependencies": {
