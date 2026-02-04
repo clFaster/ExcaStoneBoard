@@ -66,4 +66,4 @@ jobs:
           sudo apt-get install -y libfuse2
 
       - name: Build app (Tauri, no bundle)
-        run: pnpm run tauri build -- --no-bundle
+        run: pnpm run tauri build
