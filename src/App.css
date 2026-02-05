@@ -1,3 +1,98 @@
+/* =============================================================================
+   Design System - CSS Custom Properties
+   ============================================================================= */
+
+:root {
+  /* --------------------------------------------------------------------------
+     Background Colors (dark to light)
+     -------------------------------------------------------------------------- */
+  --bg-base: #121212;           /* App background, canvas */
+  --bg-surface: #1e1e1e;        /* Sidebar, cards, panels */
+  --bg-elevated: #252525;       /* Raised elements, buttons */
+  --bg-hover: #2a2a2a;          /* Hover states */
+  --bg-active: #333333;         /* Active/pressed states */
+  
+  /* Folder-specific backgrounds (blue-tinted for visual hierarchy) */
+  --bg-folder: #1f252d;
+  --bg-folder-header: #1c232c;
+  --bg-folder-header-hover: #232b35;
+  --bg-folder-item: #1f242c;
+  --bg-folder-item-hover: #262d38;
+  
+  /* Selection/Active states (blue-tinted) */
+  --bg-selected: #2d4a6a;
+  --bg-selected-hover: #355a7a;
+  --bg-dragging: #2b3946;
+  
+  /* --------------------------------------------------------------------------
+     Text Colors
+     -------------------------------------------------------------------------- */
+  --text-primary: #ffffff;
+  --text-secondary: #b9c5d6;
+  --text-muted: #8a96a8;
+  --text-disabled: #666666;
+  --text-placeholder: #666666;
+  
+  /* --------------------------------------------------------------------------
+     Border Colors
+     -------------------------------------------------------------------------- */
+  --border-subtle: #2b3541;
+  --border-default: #333333;
+  --border-strong: #444444;
+  --border-hover: #4a4a4a;
+  
+  /* --------------------------------------------------------------------------
+     Accent Colors (Primary Blue)
+     -------------------------------------------------------------------------- */
+  --accent-primary: #4a90d9;
+  --accent-primary-hover: #5aa0e9;
+  --accent-primary-glow: rgba(74, 144, 217, 0.8);
+  --accent-primary-subtle: rgba(74, 144, 217, 0.15);
+  --accent-primary-ring: rgba(74, 144, 217, 0.25);
+  
+  /* --------------------------------------------------------------------------
+     Semantic Colors
+     -------------------------------------------------------------------------- */
+  --color-error: #e74c3c;
+  --color-error-text: #e58787;
+  --color-error-bg: #3a2020;
+  
+  --color-warning: #e0a96d;
+  --color-warning-bg: rgba(224, 169, 109, 0.12);
+  --color-warning-border: rgba(224, 169, 109, 0.35);
+  
+  /* --------------------------------------------------------------------------
+     Shadows & Overlays
+     -------------------------------------------------------------------------- */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --overlay-bg: rgba(0, 0, 0, 0.6);
+  
+  /* --------------------------------------------------------------------------
+     Border Radius
+     -------------------------------------------------------------------------- */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 999px;
+  
+  /* --------------------------------------------------------------------------
+     Spacing (for reference)
+     -------------------------------------------------------------------------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+}
+
+/* =============================================================================
+   Base Reset & Defaults
+   ============================================================================= */
+
 * {
   box-sizing: border-box;
 }
@@ -12,8 +107,8 @@ html, body, #root {
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  background: #121212;
-  color: #f6f6f6;
+  background: var(--bg-base);
+  color: var(--text-primary);
 }
 
 .app {
@@ -22,19 +117,23 @@ body {
   height: 100%;
 }
 
+/* =============================================================================
+   Loading Screen
+   ============================================================================= */
+
 .loading-screen {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .loading-screen .spinner {
   width: 40px;
   height: 40px;
-  border: 3px solid #333;
-  border-top-color: #4a90d9;
+  border: 3px solid var(--border-default);
+  border-top-color: var(--accent-primary);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -46,21 +145,25 @@ body {
 }
 
 .loading-screen p {
-  color: #888;
+  color: var(--text-muted);
   font-size: 14px;
   margin: 0;
 }
+
+/* =============================================================================
+   Error Toast
+   ============================================================================= */
 
 .error-toast {
   position: fixed;
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
-  background: #e74c3c;
-  color: white;
-  padding: 12px 24px;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  background: var(--color-error);
+  color: var(--text-primary);
+  padding: var(--space-3) var(--space-6);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
   z-index: 2000;
   animation: slideUp 0.3s ease;
 }
@@ -81,14 +184,17 @@ body {
   font-size: 14px;
 }
 
-/* Modal styles */
+/* =============================================================================
+   Modal Base Styles
+   ============================================================================= */
+
 .modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--overlay-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -96,50 +202,54 @@ body {
 }
 
 .deep-link-modal {
-  background: #2a2a2a;
-  border: 1px solid #444;
-  border-radius: 12px;
-  padding: 24px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
   width: 480px;
   max-width: 90%;
 }
 
 .deep-link-modal h3 {
-  margin: 0 0 16px 0;
+  margin: 0 0 var(--space-4) 0;
   font-size: 18px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .modal-url {
-  background: #1e1e1e;
-  padding: 12px;
-  border-radius: 6px;
+  background: var(--bg-surface);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
   font-size: 12px;
-  color: #888;
+  color: var(--text-muted);
   word-break: break-all;
-  margin: 0 0 12px 0;
+  margin: 0 0 var(--space-3) 0;
   max-height: 80px;
   overflow-y: auto;
 }
 
 .modal-hint {
-  margin: 0 0 20px 0;
+  margin: 0 0 var(--space-5) 0;
   font-size: 14px;
-  color: #aaa;
+  color: var(--text-secondary);
 }
 
 .modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 
+/* =============================================================================
+   Button Styles
+   ============================================================================= */
+
 .btn-primary,
 .btn-secondary {
-  padding: 10px 16px;
-  border-radius: 6px;
+  padding: 10px var(--space-4);
+  border-radius: var(--radius-md);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
@@ -148,19 +258,19 @@ body {
 }
 
 .btn-primary {
-  background: #4a90d9;
-  color: #fff;
+  background: var(--accent-primary);
+  color: var(--text-primary);
 }
 
 .btn-primary:hover {
-  background: #5aa0e9;
+  background: var(--accent-primary-hover);
 }
 
 .btn-secondary {
-  background: #333;
-  color: #ddd;
+  background: var(--bg-active);
+  color: var(--text-secondary);
 }
 
 .btn-secondary:hover {
-  background: #444;
+  background: var(--border-strong);
 }
