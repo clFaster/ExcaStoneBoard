@@ -39,3 +39,29 @@ impl Default for BoardsIndex {
         }
     }
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BoardsExportEntry {
+    pub id: String,
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub collaboration_link: Option<String>,
+    pub thumbnail: Option<String>,
+    #[serde(default)]
+    pub data: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BoardsExportFile {
+    pub version: u8,
+    #[serde(rename = "exported_at", alias = "exportedAt")]
+    pub exported_at: DateTime<Utc>,
+    pub boards: Vec<BoardsExportEntry>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BoardsImportResult {
+    pub imported: usize,
+    pub skipped: usize,
+}

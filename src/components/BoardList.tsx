@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { confirm } from '@tauri-apps/plugin-dialog';
+import { confirm, open } from '@tauri-apps/plugin-dialog';
+import { readTextFile } from '@tauri-apps/plugin-fs';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faArrowUpRightFromSquare,
@@ -10,14 +11,18 @@ import {
   faChevronRight,
   faClone,
   faCopy,
+  faDownload,
   faEllipsisVertical,
   faFileCode,
   faFileImage,
+  faGear,
+  faFolderOpen,
   faGripVertical,
   faPen,
   faPlus,
   faStar,
   faTrash,
+  faUpload,
 } from '@fortawesome/free-solid-svg-icons';
 import {
   DndContext,
@@ -34,7 +39,14 @@ import {
   MeasuringStrategy,
 } from '@dnd-kit/core';
 import { restrictToVerticalAxis, restrictToWindowEdges } from '@dnd-kit/modifiers';
-import { Board, BoardListItem, BoardFolder } from '../types/board';
+import type {
+  Board,
+  BoardFolder,
+  BoardListItem,
+  BoardsExportEntry,
+  BoardsExportFile,
+  BoardsImportResult,
+} from '../types/board';
 import './BoardList.css';
 
 // =============================================================================
@@ -53,7 +65,12 @@ interface BoardListProps {
   onExportPng: () => void;
   onCopyPng: () => void;
   onExportSvg: () => void;
+  onExportBoards: () => Promise<void>;
+  onImportBoards: (filePath: string, selectedIndices: number[]) => Promise<BoardsImportResult>;
+  onOpenBoardsFolder: () => Promise<void>;
   exportDisabled: boolean;
+  boardsExporting: boolean;
+  boardsImporting: boolean;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
 }
@@ -66,6 +83,11 @@ interface DragState {
   overId: UniqueIdentifier | null;
   overType: 'board' | 'folder' | null;
   dropPosition: DropPosition | null;
+}
+
+interface ImportBoardEntry extends BoardsExportEntry {
+  key: string;
+  index: number;
 }
 
 // =============================================================================
@@ -395,7 +417,12 @@ export function BoardList({
   onExportPng,
   onCopyPng,
   onExportSvg,
+  onExportBoards,
+  onImportBoards,
+  onOpenBoardsFolder,
   exportDisabled,
+  boardsExporting,
+  boardsImporting,
   isCollapsed,
   onToggleCollapse,
 }: BoardListProps) {
@@ -421,6 +448,21 @@ export function BoardList({
       return {};
     }
   });
+  const [hideExportRow, setHideExportRow] = useState(() => {
+    try {
+      const stored = localStorage.getItem('boards.hideExportRow');
+      return stored ? Boolean(JSON.parse(stored)) : false;
+    } catch {
+      return false;
+    }
+  });
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importBoards, setImportBoards] = useState<ImportBoardEntry[]>([]);
+  const [importSelection, setImportSelection] = useState<Record<string, boolean>>({});
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importSourceName, setImportSourceName] = useState<string | null>(null);
+  const [importFilePath, setImportFilePath] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [dragState, setDragState] = useState<DragState>({
     activeId: null,
@@ -446,6 +488,27 @@ export function BoardList({
           : [{ board: item }]
       ),
     [items]
+  );
+
+  const existingBoardIds = useMemo(
+    () => new Set(flattenedBoards.map((entry) => entry.board.id)),
+    [flattenedBoards]
+  );
+
+  const duplicateImportIds = useMemo(() => {
+    const seen = new Set<string>();
+    const duplicates = new Set<string>();
+    for (const entry of importBoards) {
+      if (!entry.id) continue;
+      if (seen.has(entry.id)) duplicates.add(entry.id);
+      seen.add(entry.id);
+    }
+    return duplicates;
+  }, [importBoards]);
+
+  const selectedImportBoards = useMemo(
+    () => importBoards.filter((board) => Boolean(importSelection[board.key])),
+    [importBoards, importSelection]
   );
 
   const getBoardById = (boardId: string) =>
@@ -504,6 +567,14 @@ export function BoardList({
       // ignore storage errors
     }
   }, [collapsedFolders]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('boards.hideExportRow', JSON.stringify(hideExportRow));
+    } catch {
+      // ignore storage errors
+    }
+  }, [hideExportRow]);
 
   useEffect(() => {
     const folderIds = new Set(items.filter((item) => item.type === 'folder').map((item) => item.id));
@@ -605,6 +676,123 @@ export function BoardList({
   };
 
   const isFolderCollapsed = (folderId: string) => Boolean(collapsedFolders[folderId]);
+
+  const closeImportDialog = () => {
+    if (boardsImporting) return;
+    setImportDialogOpen(false);
+    setImportBoards([]);
+    setImportSelection({});
+    setImportError(null);
+    setImportSourceName(null);
+    setImportFilePath(null);
+  };
+
+  const openSettings = () => setSettingsOpen(true);
+  const closeSettings = () => {
+    if (boardsExporting || boardsImporting) return;
+    setSettingsOpen(false);
+  };
+
+  const buildImportBoards = (payload: Partial<BoardsExportFile>): ImportBoardEntry[] => {
+    if (!Array.isArray(payload.boards)) return [];
+    const seen = new Set<string>();
+    return payload.boards.reduce<ImportBoardEntry[]>((acc, entry, index) => {
+      if (!entry || typeof entry.name !== 'string') return acc;
+      const name = entry.name.trim() || 'Untitled board';
+      const baseKey = String(entry.id || `import-${index + 1}`);
+      let key = baseKey;
+      let suffix = 1;
+      while (seen.has(key)) {
+        key = `${baseKey}-${suffix}`;
+        suffix += 1;
+      }
+      seen.add(key);
+      acc.push({
+        ...entry,
+        name,
+        data: entry.data ?? null,
+        key,
+        index,
+      });
+      return acc;
+    }, []);
+  };
+
+  const handleOpenImport = async () => {
+    setImportError(null);
+    try {
+      const result = await open({
+        title: 'Import boards',
+        multiple: false,
+        directory: false,
+        filters: [{ name: 'Boards export', extensions: ['json'] }],
+      });
+
+      if (!result) return;
+      const filePath = Array.isArray(result) ? result[0] : result;
+      if (!filePath) return;
+
+      const content = await readTextFile(filePath);
+      const parsed = JSON.parse(content) as Partial<BoardsExportFile>;
+      const entries = buildImportBoards(parsed);
+      if (entries.length === 0) {
+        setImportError('No boards found in the selected file.');
+        return;
+      }
+
+      const seenImportIds = new Set<string>();
+      const selection = Object.fromEntries(
+        entries.map((entry) => {
+          const hasId = Boolean(entry.id);
+          const isDuplicate = hasId && (existingBoardIds.has(entry.id) || seenImportIds.has(entry.id));
+          if (hasId) {
+            seenImportIds.add(entry.id);
+          }
+          return [entry.key, !isDuplicate];
+        })
+      );
+      const sourceName = filePath.split(/[\\/]/).pop() || 'Import file';
+      setImportBoards(entries);
+      setImportSelection(selection);
+      setImportSourceName(sourceName);
+      setImportFilePath(filePath);
+      setSettingsOpen(false);
+      setImportDialogOpen(true);
+    } catch (e) {
+      console.error('Failed to import boards:', e);
+      setImportError('Import failed. Please check the file and try again.');
+    }
+  };
+
+  const handleToggleImportSelection = (key: string) => {
+    setImportSelection((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleSelectAllImports = () => {
+    setImportSelection(Object.fromEntries(importBoards.map((entry) => [entry.key, true])));
+  };
+
+  const handleClearAllImports = () => {
+    setImportSelection(Object.fromEntries(importBoards.map((entry) => [entry.key, false])));
+  };
+
+  const handleConfirmImport = async () => {
+    if (boardsImporting || selectedImportBoards.length === 0) return;
+    setImportError(null);
+
+    try {
+      if (!importFilePath) {
+        setImportError('Import file not available. Please select a file again.');
+        return;
+      }
+      const selectedIndices = selectedImportBoards.map((entry) => entry.index);
+      await onImportBoards(importFilePath, selectedIndices);
+      closeImportDialog();
+    } catch (e) {
+      console.error('Import failed:', e);
+      setImportError('Import failed. Please try again.');
+    }
+  };
 
   const openMenu = (event: React.MouseEvent<HTMLButtonElement>, type: 'board' | 'folder', id: string) => {
     event.stopPropagation();
@@ -1054,43 +1242,50 @@ export function BoardList({
       <div className="board-list">
         <div className="board-list-header">
           <h2>Boards</h2>
-          <button className="toggle-btn" onClick={onToggleCollapse} title="Collapse sidebar">
-            <FontAwesomeIcon icon={faChevronLeft} />
-          </button>
+          <div className="board-header-actions">
+            <button className="icon-btn" onClick={openSettings} title="Settings">
+              <FontAwesomeIcon icon={faGear} />
+            </button>
+            <button className="toggle-btn" onClick={onToggleCollapse} title="Collapse sidebar">
+              <FontAwesomeIcon icon={faChevronLeft} />
+            </button>
+          </div>
         </div>
 
-        <div className="board-export-actions">
-          <button
-            type="button"
-            className="export-btn"
-            onClick={onExportPng}
-            disabled={exportDisabled}
-            title="Export PNG"
-            aria-label="Export PNG"
-          >
-            <FontAwesomeIcon icon={faFileImage} />
-          </button>
-          <button
-            type="button"
-            className="export-btn"
-            onClick={onCopyPng}
-            disabled={exportDisabled}
-            title="Copy PNG"
-            aria-label="Copy PNG"
-          >
-            <FontAwesomeIcon icon={faCopy} />
-          </button>
-          <button
-            type="button"
-            className="export-btn"
-            onClick={onExportSvg}
-            disabled={exportDisabled}
-            title="Export SVG"
-            aria-label="Export SVG"
-          >
-            <FontAwesomeIcon icon={faFileCode} />
-          </button>
-        </div>
+        {!hideExportRow && (
+          <div className="board-export-actions">
+            <button
+              type="button"
+              className="export-btn"
+              onClick={onExportPng}
+              disabled={exportDisabled}
+              title="Export PNG"
+              aria-label="Export PNG"
+            >
+              <FontAwesomeIcon icon={faFileImage} />
+            </button>
+            <button
+              type="button"
+              className="export-btn"
+              onClick={onCopyPng}
+              disabled={exportDisabled}
+              title="Copy PNG"
+              aria-label="Copy PNG"
+            >
+              <FontAwesomeIcon icon={faCopy} />
+            </button>
+            <button
+              type="button"
+              className="export-btn"
+              onClick={onExportSvg}
+              disabled={exportDisabled}
+              title="Export SVG"
+              aria-label="Export SVG"
+            >
+              <FontAwesomeIcon icon={faFileCode} />
+            </button>
+          </div>
+        )}
 
         <form className="new-board-form" onSubmit={handleCreateBoard}>
           <input
@@ -1217,6 +1412,140 @@ export function BoardList({
           </a>
         </div>
       </div>
+
+      {settingsOpen
+        ? createPortal(
+            <div className="modal-overlay" onClick={closeSettings}>
+              <div className="modal settings-modal" onClick={(event) => event.stopPropagation()}>
+                <h3>Settings</h3>
+                <div className="settings-section">
+                  <div className="settings-section-title">Boards</div>
+                  <div className="settings-actions">
+                    <button
+                      type="button"
+                      className="settings-action-btn"
+                      onClick={onExportBoards}
+                      disabled={boardsExporting}
+                    >
+                      <FontAwesomeIcon icon={faDownload} />
+                      {boardsExporting ? 'Exporting...' : 'Export boards'}
+                    </button>
+                    <button
+                      type="button"
+                      className="settings-action-btn"
+                      onClick={handleOpenImport}
+                      disabled={boardsImporting}
+                    >
+                      <FontAwesomeIcon icon={faUpload} />
+                      {boardsImporting ? 'Importing...' : 'Import boards'}
+                    </button>
+                    <button type="button" className="settings-action-btn" onClick={onOpenBoardsFolder}>
+                      <FontAwesomeIcon icon={faFolderOpen} />
+                      Open boards folder
+                    </button>
+                  </div>
+                </div>
+                <div className="settings-section">
+                  <div className="settings-section-title">Display</div>
+                  <label className="settings-toggle">
+                    <input
+                      type="checkbox"
+                      checked={hideExportRow}
+                      onChange={(e) => setHideExportRow(e.target.checked)}
+                    />
+                    <span className="toggle-track" aria-hidden="true"></span>
+                    <span className="toggle-text">Hide export/copy buttons</span>
+                  </label>
+                </div>
+                {!importDialogOpen && importError && (
+                  <div className="settings-error">{importError}</div>
+                )}
+                <div className="modal-actions">
+                  <button className="cancel-btn" onClick={closeSettings}>
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
+
+      {importDialogOpen
+        ? createPortal(
+            <div
+              className="modal-overlay"
+              onClick={() => {
+                if (!boardsImporting) closeImportDialog();
+              }}
+            >
+              <div
+                className="modal import-modal"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <h3>Import boards</h3>
+                {importSourceName && <p className="modal-hint">Source: {importSourceName}</p>}
+                <div className="import-controls">
+                  <button
+                    type="button"
+                    className="import-control-btn"
+                    onClick={handleSelectAllImports}
+                    disabled={boardsImporting}
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    className="import-control-btn"
+                    onClick={handleClearAllImports}
+                    disabled={boardsImporting}
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div className="import-list">
+                  {importBoards.map((entry) => {
+                    const isSelected = Boolean(importSelection[entry.key]);
+                    const hasId = Boolean(entry.id);
+                    const isDuplicate =
+                      hasId && (existingBoardIds.has(entry.id) || duplicateImportIds.has(entry.id));
+                    return (
+                      <label
+                        key={entry.key}
+                        className={`import-item ${isSelected ? 'selected' : ''} ${isDuplicate ? 'duplicate' : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleToggleImportSelection(entry.key)}
+                          disabled={boardsImporting}
+                        />
+                        <span className="import-checkmark" aria-hidden="true"></span>
+                        <span className="import-item-name">{entry.name}</span>
+                        {isDuplicate && <span className="import-item-duplicate">Duplicate</span>}
+                      </label>
+                    );
+                  })}
+                </div>
+                <div className="import-summary">{selectedImportBoards.length} selected</div>
+                {importError && <div className="import-error">{importError}</div>}
+                <div className="modal-actions">
+                  <button className="cancel-btn" onClick={closeImportDialog} disabled={boardsImporting}>
+                    Cancel
+                  </button>
+                  <button
+                    className="save-btn"
+                    onClick={handleConfirmImport}
+                    disabled={boardsImporting || selectedImportBoards.length === 0}
+                  >
+                    Import
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
 
       {/* Drag Overlay - shows a preview following the cursor */}
       <DragOverlay

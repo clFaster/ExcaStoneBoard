@@ -28,6 +28,27 @@ export interface BoardsIndex {
   active_board_id: string | null;
 }
 
+export interface BoardsExportEntry {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  collaboration_link: string | null;
+  thumbnail: string | null;
+  data: ExcalidrawData | null;
+}
+
+export interface BoardsExportFile {
+  version: 1;
+  exported_at: string;
+  boards: BoardsExportEntry[];
+}
+
+export interface BoardsImportResult {
+  imported: number;
+  skipped: number;
+}
+
 export interface ExcalidrawData {
   elements: ExcalidrawElement[];
   appState?: Partial<AppState>;

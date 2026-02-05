@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { save } from '@tauri-apps/plugin-dialog';
 import { BoardList } from './components/BoardList';
 import { ExcalidrawFrame, ExcalidrawFrameHandle } from './components/ExcalidrawFrame';
 import { useBoards } from './hooks/useBoards';
-import type { ExcalidrawData } from './types/board';
+import type { BoardsImportResult, ExcalidrawData } from './types/board';
 import './App.css';
 
 function App() {
@@ -19,6 +21,7 @@ function App() {
     setBoardsIndex,
     saveBoardData,
     loadBoardData,
+    loadBoards,
   } = useBoards();
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -26,6 +29,9 @@ function App() {
   const [boardDataLoading, setBoardDataLoading] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [boardsExportBusy, setBoardsExportBusy] = useState(false);
+  const [boardsImportBusy, setBoardsImportBusy] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const excalidrawRef = useRef<ExcalidrawFrameHandle | null>(null);
   const activeBoardName = (() => {
     for (const item of items) {
@@ -114,6 +120,73 @@ function App() {
     });
   }, [runExport]);
 
+  const handleExportBoards = useCallback(async () => {
+    if (boardsExportBusy) return;
+    setBoardsExportBusy(true);
+    setSettingsError(null);
+
+    try {
+      const now = new Date();
+      const pad = (value: number) => String(value).padStart(2, '0');
+      const dateStamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      const defaultName = `excastoneboards-${dateStamp}.json`;
+
+      const filePath = await save({
+        defaultPath: defaultName,
+        filters: [{ name: 'Boards export', extensions: ['json'] }],
+      });
+
+      if (!filePath) return;
+      if (excalidrawRef.current) {
+        await excalidrawRef.current.flushSave();
+      }
+      await invoke('export_boards', { filePath });
+    } catch (e) {
+      console.error('Boards export failed:', e);
+      setSettingsError('Boards export failed. Please try again.');
+    } finally {
+      setBoardsExportBusy(false);
+    }
+  }, [boardsExportBusy]);
+
+  const handleImportBoards = useCallback(
+    async (filePath: string, selectedIndices: number[]): Promise<BoardsImportResult> => {
+      if (boardsImportBusy) {
+        return { imported: 0, skipped: selectedIndices.length };
+      }
+
+      setBoardsImportBusy(true);
+      setSettingsError(null);
+
+      try {
+        const result = await invoke<BoardsImportResult>('import_boards', {
+          filePath,
+          selectedIndices,
+        });
+        await loadBoards();
+        return result;
+      } catch (e) {
+        console.error('Boards import failed:', e);
+        setSettingsError('Boards import failed. Please try again.');
+        return { imported: 0, skipped: selectedIndices.length };
+      } finally {
+        setBoardsImportBusy(false);
+      }
+    },
+    [boardsImportBusy, loadBoards]
+  );
+
+  const handleOpenBoardsFolder = useCallback(async () => {
+    try {
+      setSettingsError(null);
+      await invoke('open_boards_folder');
+      setSettingsError(null);
+    } catch (e) {
+      console.error('Failed to open boards folder:', e);
+      setSettingsError('Unable to open boards folder.');
+    }
+  }, []);
+
   // Get the active board's collaboration link
 
   // Handle board selection
@@ -148,7 +221,12 @@ function App() {
         onExportPng={handleExportPng}
         onCopyPng={handleCopyPng}
         onExportSvg={handleExportSvg}
+        onExportBoards={handleExportBoards}
+        onImportBoards={handleImportBoards}
+        onOpenBoardsFolder={handleOpenBoardsFolder}
         exportDisabled={!activeBoardId || boardDataLoading || exportBusy}
+        boardsExporting={boardsExportBusy}
+        boardsImporting={boardsImportBusy}
         isCollapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
       />
@@ -169,9 +247,9 @@ function App() {
           ref={excalidrawRef}
         />
       )}
-      {(error || exportError) && (
+      {(error || exportError || settingsError) && (
         <div className="error-toast">
-          <p>{error || exportError}</p>
+          <p>{error || exportError || settingsError}</p>
         </div>
       )}
     </div>

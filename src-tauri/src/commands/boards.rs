@@ -1,14 +1,19 @@
 use chrono::Utc;
 use rusqlite::params;
+use serde_json::Value as JsonValue;
+use std::fs;
+use std::process::Command;
 use tauri::AppHandle;
 use uuid::Uuid;
 
 use crate::db::{
     board_exists, board_id_exists, default_board_data, first_board_id, first_board_id_from_db,
-    get_board_by_id, get_setting, load_board_data_value, load_boards_index_from_db,
+    get_board_by_id, get_boards_dir, get_setting, load_board_data_value, load_boards_index_from_db,
     normalize_active_board_id, open_db, set_setting,
 };
-use crate::models::{Board, BoardListItem, BoardsIndex};
+use crate::models::{
+    Board, BoardListItem, BoardsExportEntry, BoardsExportFile, BoardsImportResult, BoardsIndex,
+};
 
 #[tauri::command]
 pub(crate) fn get_boards(app: AppHandle) -> Result<BoardsIndex, String> {
@@ -270,6 +275,27 @@ pub(crate) fn duplicate_board(
 }
 
 #[tauri::command]
+pub(crate) fn open_boards_folder(app: AppHandle) -> Result<(), String> {
+    let boards_dir = get_boards_dir(&app)?;
+    let path = boards_dir
+        .to_str()
+        .ok_or_else(|| "Invalid boards directory path".to_string())?
+        .to_string();
+
+    let mut command = if cfg!(target_os = "windows") {
+        Command::new("explorer")
+    } else if cfg!(target_os = "macos") {
+        Command::new("open")
+    } else {
+        Command::new("xdg-open")
+    };
+
+    command.arg(&path).spawn().map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
 pub(crate) fn set_boards_index(
     app: AppHandle,
     items: Vec<BoardListItem>,
@@ -331,4 +357,155 @@ pub(crate) fn set_boards_index(
     set_setting(&tx, "active_board_id", index.active_board_id.as_deref())?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(index)
+}
+
+#[tauri::command]
+pub(crate) fn export_boards(app: AppHandle, file_path: String) -> Result<(), String> {
+    let conn = open_db(&app)?;
+    let index = load_boards_index_from_db(&conn)?;
+
+    let mut boards = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for item in index.items.iter() {
+        match item {
+            BoardListItem::Board(board) => {
+                if seen.insert(board.id.clone()) {
+                    boards.push(build_export_entry(&conn, board)?);
+                }
+            }
+            BoardListItem::Folder(folder) => {
+                for board in folder.items.iter() {
+                    if seen.insert(board.id.clone()) {
+                        boards.push(build_export_entry(&conn, board)?);
+                    }
+                }
+            }
+        }
+    }
+
+    let export_file = BoardsExportFile {
+        version: 1,
+        exported_at: Utc::now(),
+        boards,
+    };
+
+    let payload = serde_json::to_string_pretty(&export_file).map_err(|e| e.to_string())?;
+    fs::write(file_path, payload).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn import_boards(
+    app: AppHandle,
+    file_path: String,
+    selected_indices: Vec<usize>,
+) -> Result<BoardsImportResult, String> {
+    let payload = fs::read_to_string(file_path).map_err(|e| e.to_string())?;
+    let export_file: BoardsExportFile =
+        serde_json::from_str(&payload).map_err(|e| e.to_string())?;
+
+    let conn = open_db(&app)?;
+    let active_before = get_setting(&conn, "active_board_id")?;
+
+    let mut stmt = conn
+        .prepare("SELECT id, name FROM boards")
+        .map_err(|e| e.to_string())?;
+    let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
+    let mut existing_ids = std::collections::HashSet::new();
+    let mut used_names = std::collections::HashSet::new();
+
+    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        let id: String = row.get(0).map_err(|e| e.to_string())?;
+        let name: String = row.get(1).map_err(|e| e.to_string())?;
+        existing_ids.insert(id);
+        let name_key = name.trim().to_lowercase();
+        if !name_key.is_empty() {
+            used_names.insert(name_key);
+        }
+    }
+
+    let selected: std::collections::HashSet<usize> = selected_indices.into_iter().collect();
+    let mut seen_ids = existing_ids;
+    let mut imported = 0;
+    let mut skipped = 0;
+
+    let make_copy_name = |base: &str, used: &mut std::collections::HashSet<String>| {
+        let clean = if base.trim().is_empty() {
+            "Imported board"
+        } else {
+            base.trim()
+        };
+        let mut candidate = format!("{} (Copy)", clean);
+        let mut counter = 2;
+        while used.contains(&candidate.to_lowercase()) {
+            candidate = format!("{} (Copy {})", clean, counter);
+            counter += 1;
+        }
+        candidate
+    };
+
+    for (index, entry) in export_file.boards.iter().enumerate() {
+        if !selected.contains(&index) {
+            continue;
+        }
+
+        let base_name = if entry.name.trim().is_empty() {
+            "Imported board"
+        } else {
+            entry.name.trim()
+        };
+        let has_id = !entry.id.trim().is_empty();
+        let is_duplicate = has_id && seen_ids.contains(&entry.id);
+        let final_name = if is_duplicate {
+            make_copy_name(base_name, &mut used_names)
+        } else {
+            base_name.to_string()
+        };
+
+        let created = match create_board(app.clone(), final_name.clone()) {
+            Ok(board) => board,
+            Err(_) => {
+                skipped += 1;
+                continue;
+            }
+        };
+
+        if let Some(data_value) = entry.data.clone() {
+            if !data_value.is_null() {
+                let data_str = data_value.to_string();
+                save_board_data(app.clone(), created.id.clone(), data_str)?;
+            }
+        }
+
+        used_names.insert(final_name.to_lowercase());
+        if has_id {
+            seen_ids.insert(entry.id.clone());
+        }
+        imported += 1;
+    }
+
+    if let Some(active_id) = active_before {
+        set_setting(&conn, "active_board_id", Some(&active_id))?;
+    }
+
+    Ok(BoardsImportResult { imported, skipped })
+}
+
+fn build_export_entry(
+    conn: &rusqlite::Connection,
+    board: &Board,
+) -> Result<BoardsExportEntry, String> {
+    let data_str = load_board_data_value(conn, &board.id)?.unwrap_or_else(default_board_data);
+    let data_json: JsonValue = serde_json::from_str(&data_str).unwrap_or(JsonValue::Null);
+
+    Ok(BoardsExportEntry {
+        id: board.id.clone(),
+        name: board.name.clone(),
+        created_at: board.created_at,
+        updated_at: board.updated_at,
+        collaboration_link: board.collaboration_link.clone(),
+        thumbnail: board.thumbnail.clone(),
+        data: Some(data_json),
+    })
 }
