@@ -132,6 +132,7 @@ interface DraggableBoardItemProps {
   onSelect: () => void;
   onOpenMenu: (e: React.MouseEvent<HTMLButtonElement>) => void;
   formatDate: (date: string) => string;
+  showTimestamps: boolean;
   disabled?: boolean;
   inFolder?: boolean;
   parentFolderId?: string;
@@ -150,6 +151,7 @@ function DraggableBoardItem({
   onSelect,
   onOpenMenu,
   formatDate,
+  showTimestamps,
   disabled,
   inFolder,
   parentFolderId,
@@ -218,7 +220,7 @@ function DraggableBoardItem({
             </span>
             <div className="board-text">
               <span className="board-name">{board.name}</span>
-              <span className="board-date">{formatDate(board.updated_at)}</span>
+              {showTimestamps && <span className="board-date">{formatDate(board.updated_at)}</span>}
             </div>
           </div>
           <div className="board-actions">
@@ -362,9 +364,10 @@ function DraggableFolderItem({
 interface BoardOverlayProps {
   board: Board;
   formatDate: (date: string) => string;
+  showTimestamps: boolean;
 }
 
-function BoardOverlay({ board, formatDate }: BoardOverlayProps) {
+function BoardOverlay({ board, formatDate, showTimestamps }: BoardOverlayProps) {
   return (
     <div className="board-item drag-overlay">
       <div className="board-info">
@@ -373,7 +376,7 @@ function BoardOverlay({ board, formatDate }: BoardOverlayProps) {
         </span>
         <div className="board-text">
           <span className="board-name">{board.name}</span>
-          <span className="board-date">{formatDate(board.updated_at)}</span>
+          {showTimestamps && <span className="board-date">{formatDate(board.updated_at)}</span>}
         </div>
       </div>
     </div>
@@ -454,6 +457,14 @@ export function BoardList({
       return stored ? Boolean(JSON.parse(stored)) : false;
     } catch {
       return false;
+    }
+  });
+  const [showTimestamps, setShowTimestamps] = useState(() => {
+    try {
+      const stored = localStorage.getItem('boards.showTimestamps');
+      return stored ? Boolean(JSON.parse(stored)) : true;
+    } catch {
+      return true;
     }
   });
   const [importDialogOpen, setImportDialogOpen] = useState(false);
@@ -575,6 +586,14 @@ export function BoardList({
       // ignore storage errors
     }
   }, [hideExportRow]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('boards.showTimestamps', JSON.stringify(showTimestamps));
+    } catch {
+      // ignore storage errors
+    }
+  }, [showTimestamps]);
 
   useEffect(() => {
     const folderIds = new Set(items.filter((item) => item.type === 'folder').map((item) => item.id));
@@ -1315,47 +1334,48 @@ export function BoardList({
                 const isFolderDragSource = dragState.activeId === folderId;
 
                 return (
-                  <DraggableFolderItem
-                    key={item.id}
-                    folder={item}
-                    isCollapsed={isFolderCollapsed(item.id)}
-                    isEditing={editingFolderId === item.id}
-                    editName={editFolderName}
-                    onEditNameChange={setEditFolderName}
-                    onSaveEdit={() => handleSaveFolderEdit(item.id)}
-                    onCancelEdit={() => setEditingFolderId(null)}
-                    onToggleCollapse={() => toggleFolderCollapsed(item.id)}
-                    onOpenMenu={(e) => openMenu(e, 'folder', item.id)}
-                    disabled={dragDisabled || editingFolderId === item.id}
-                    dropPosition={folderDropPosition}
-                    isDragSource={isFolderDragSource}
-                  >
-                    {item.items.map((board) => {
+                    <DraggableFolderItem
+                      key={item.id}
+                      folder={item}
+                      isCollapsed={isFolderCollapsed(item.id)}
+                      isEditing={editingFolderId === item.id}
+                      editName={editFolderName}
+                      onEditNameChange={setEditFolderName}
+                      onSaveEdit={() => handleSaveFolderEdit(item.id)}
+                      onCancelEdit={() => setEditingFolderId(null)}
+                      onToggleCollapse={() => toggleFolderCollapsed(item.id)}
+                      onOpenMenu={(e) => openMenu(e, 'folder', item.id)}
+                      disabled={dragDisabled || editingFolderId === item.id}
+                      dropPosition={folderDropPosition}
+                      isDragSource={isFolderDragSource}
+                    >
+                      {item.items.map((board) => {
                       const isOverBoard = dragState.overId === board.id;
                       const boardDropPosition = isOverBoard ? dragState.dropPosition : null;
                       const isBoardDragSource = dragState.activeId === board.id;
 
-                      return (
-                        <DraggableBoardItem
-                          key={board.id}
-                          board={board}
-                          isActive={board.id === activeBoardId}
-                          isEditing={editingId === board.id}
-                          editName={editName}
-                          onEditNameChange={setEditName}
-                          onSaveEdit={() => handleSaveEdit(board.id)}
-                          onCancelEdit={() => setEditingId(null)}
-                          onSelect={() => onSelectBoard(board.id)}
-                          onOpenMenu={(e) => openMenu(e, 'board', board.id)}
-                          formatDate={formatDate}
-                          disabled={dragDisabled || editingId === board.id}
-                          inFolder
-                          parentFolderId={item.id}
-                          dropPosition={boardDropPosition}
-                          isDragSource={isBoardDragSource}
-                        />
-                      );
-                    })}
+                        return (
+                          <DraggableBoardItem
+                            key={board.id}
+                            board={board}
+                            isActive={board.id === activeBoardId}
+                            isEditing={editingId === board.id}
+                            editName={editName}
+                            onEditNameChange={setEditName}
+                            onSaveEdit={() => handleSaveEdit(board.id)}
+                            onCancelEdit={() => setEditingId(null)}
+                            onSelect={() => onSelectBoard(board.id)}
+                            onOpenMenu={(e) => openMenu(e, 'board', board.id)}
+                            formatDate={formatDate}
+                            showTimestamps={showTimestamps}
+                            disabled={dragDisabled || editingId === board.id}
+                            inFolder
+                            parentFolderId={item.id}
+                            dropPosition={boardDropPosition}
+                            isDragSource={isBoardDragSource}
+                          />
+                        );
+                      })}
                   </DraggableFolderItem>
                 );
               }
@@ -1377,6 +1397,7 @@ export function BoardList({
                   onSelect={() => onSelectBoard(item.id)}
                   onOpenMenu={(e) => openMenu(e, 'board', item.id)}
                   formatDate={formatDate}
+                  showTimestamps={showTimestamps}
                   disabled={dragDisabled || editingId === item.id}
                   dropPosition={boardDropPosition}
                   isDragSource={isBoardDragSource}
@@ -1457,9 +1478,21 @@ export function BoardList({
                     <span className="toggle-text">Hide export/copy buttons</span>
                   </label>
                 </div>
-                {!importDialogOpen && importError && (
-                  <div className="settings-error">{importError}</div>
-                )}
+        {!importDialogOpen && importError && (
+          <div className="settings-error">{importError}</div>
+        )}
+        <div className="settings-section">
+          <div className="settings-section-title">Sidebar</div>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={showTimestamps}
+              onChange={(e) => setShowTimestamps(e.target.checked)}
+            />
+            <span className="toggle-track" aria-hidden="true"></span>
+            <span className="toggle-text">Show timestamps in sidebar</span>
+          </label>
+        </div>
                 <div className="modal-actions">
                   <button className="cancel-btn" onClick={closeSettings}>
                     Close
@@ -1558,7 +1591,7 @@ export function BoardList({
           'items' in activeItem ? (
             <FolderOverlay folder={activeItem as BoardFolder} />
           ) : (
-            <BoardOverlay board={activeItem as Board} formatDate={formatDate} />
+            <BoardOverlay board={activeItem as Board} formatDate={formatDate} showTimestamps={showTimestamps} />
           )
         ) : null}
       </DragOverlay>
