@@ -42,7 +42,7 @@
                          Wide310x150Logo="Assets\widetile.png" 
                          Square310x310Logo="Assets\largetile.png" 
         />
-        <uap:SplashScreen Image="Resources\Images\splashscreen.png"/>
+        <uap:SplashScreen Image="Assets\splashscreen.png"/>
       </uap:VisualElements>
 
 {{EXTENSIONS}}
