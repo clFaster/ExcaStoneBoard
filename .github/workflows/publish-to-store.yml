@@ -1,0 +1,163 @@
+name: Publish to Store
+
+on:
+  workflow_dispatch:
+    inputs:
+      release-type:
+        type: choice
+        description: Which type of release to create?
+        required: true
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  update-version:
+    runs-on: ubuntu-latest
+    permissions: write-all
+    outputs:
+      new_version: ${{ steps.bump_version.outputs.new_version }}
+    steps:
+      - name: Ensure branch is main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          text="Publish a new version can only be done from the main branch."
+          echo "::error title=Wrong Branch::$text"
+          exit 1
+
+      - name: Read current version
+        run: |
+          echo "Current version: ${{ vars.VERSION }}"
+
+      - name: Bump version
+        id: bump_version
+        run: |
+          increment="${{ inputs.release-type }}"
+
+          IFS='.' read -r -a parts <<< "${{ vars.VERSION }}"
+
+          if [ "${#parts[@]}" -ne 3 ]; then
+            echo "Invalid version format"
+            exit 1
+          fi
+
+          major=${parts[0]}
+          minor=${parts[1]}
+          patch=${parts[2]}
+
+          if [ "$increment" = "major" ]; then
+            major=$((major + 1))
+            minor=0
+            patch=0
+          elif [ "$increment" = "minor" ]; then
+            minor=$((minor + 1))
+            patch=0
+          elif [ "$increment" = "patch" ]; then
+            patch=$((patch + 1))
+          else
+            echo "Invalid increment type"
+            exit 1
+          fi
+
+          new_version="$major.$minor.$patch"
+
+          echo "New version: $new_version"
+          echo "new_version=$new_version" >> $GITHUB_OUTPUT
+
+      - name: Update version var
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_UPDATE_VERSION_TOKEN }}
+        run: |
+          gh api \
+            --method PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /repos/${{ github.repository }}/actions/variables/VERSION \
+            -f "name=VERSION" -f "value=${{ steps.bump_version.outputs.new_version }}"
+
+  publish-app:
+    runs-on: windows-latest
+    needs: update-version
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    env:
+      NodeVersion: 24
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Microsoft Store Developer CLI
+        uses: microsoft/setup-msstore-cli@v1
+
+      - name: Configure Microsoft Store Developer CLI
+        run: |
+          msstore reconfigure -t ${{ secrets.AZURE_AD_TENANT_ID }} -s ${{ secrets.PARTNER_CENTER_SELLER_ID }} -c ${{ secrets.AZURE_AD_APP_REGISTRATION_CLIENT_ID }} -cs "${{ secrets.AZURE_AD_APP_REGISTRATION_CLIENT_SECRET }}"
+
+      - name: Delete Pending Submissions
+        continue-on-error: true
+        run: |
+          msstore submission delete ${{ secrets.STORE_APP_ID }} --no-confirm
+          exit 0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add Rust targets
+        run: rustup target add x86_64-pc-windows-msvc aarch64-pc-windows-msvc
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NodeVersion }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@1e1c8eafbd745f64b1ef30a7d7ed7965034c486c
+        with:
+          package_json_file: ./package.json
+          cache: true
+          cache_dependency_path: ./pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set app version
+        env:
+          APP_VERSION: ${{ needs.update-version.outputs.new_version }}
+        run: |
+          node -e "const fs=require('fs');const path='src-tauri/tauri.conf.json';const data=JSON.parse(fs.readFileSync(path,'utf8'));data.version=process.env.APP_VERSION;fs.writeFileSync(path, JSON.stringify(data, null, 2) + '\n');"
+          node -e "const fs=require('fs');const path='package.json';const data=JSON.parse(fs.readFileSync(path,'utf8'));data.version=process.env.APP_VERSION;fs.writeFileSync(path, JSON.stringify(data, null, 2) + '\n');"
+
+      - name: Install msixbundle-cli
+        run: cargo install msixbundle-cli
+
+      - name: Build MSIX bundle
+        run: pnpm run tauri:windows:build --arch x64,arm64 --runner pnpm
+
+      - name: Locate MSIX bundle
+        id: find_msix
+        shell: pwsh
+        run: |
+          $bundle = Get-ChildItem -Path "src-tauri/target/msix" -Recurse -Filter *.msixbundle | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $bundle) {
+            Write-Error "No .msixbundle found under src-tauri/target/msix"
+            exit 1
+          }
+          "bundle_path=$($bundle.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Bundle: $($bundle.FullName)"
+
+      - name: MSSTORE - Publish package
+        run: |
+          msstore publish "${{ steps.find_msix.outputs.bundle_path }}" -id ${{ secrets.STORE_APP_ID }}
