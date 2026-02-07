@@ -55,7 +55,7 @@ jobs:
         run: cargo install msixbundle-cli
 
       - name: Build MSIX bundle
-        run: pnpm run tauri:windows:build --arch x64,arm64 --runner pnpm
+        run: pnpm run tauri:windows:build --arch "x64,arm64" --runner pnpm
 
       - name: Upload MSIX bundle
         uses: actions/upload-artifact@v6

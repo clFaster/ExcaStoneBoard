@@ -34,6 +34,9 @@ npm run tauri tauri
 ```bash
 # Build for production
 npm run tauri build
+
+# Build MSIX
+pnpm run tauri:windows:build --arch "x64,arm64" --runner pnpm
 ```
 
 ## How It Works
