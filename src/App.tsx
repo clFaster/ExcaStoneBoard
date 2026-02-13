@@ -176,17 +176,6 @@ function App() {
     [boardsImportBusy, loadBoards]
   );
 
-  const handleOpenBoardsFolder = useCallback(async () => {
-    try {
-      setSettingsError(null);
-      await invoke('open_boards_folder');
-      setSettingsError(null);
-    } catch (e) {
-      console.error('Failed to open boards folder:', e);
-      setSettingsError('Unable to open boards folder.');
-    }
-  }, []);
-
   // Get the active board's collaboration link
 
   // Handle board selection
@@ -223,7 +212,6 @@ function App() {
         onExportSvg={handleExportSvg}
         onExportBoards={handleExportBoards}
         onImportBoards={handleImportBoards}
-        onOpenBoardsFolder={handleOpenBoardsFolder}
         exportDisabled={!activeBoardId || boardDataLoading || exportBusy}
         boardsExporting={boardsExportBusy}
         boardsImporting={boardsImportBusy}

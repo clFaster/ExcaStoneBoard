@@ -5,8 +5,8 @@ mod models;
 
 use crate::commands::boards::{
     create_board, delete_board, duplicate_board, export_boards, get_boards, import_boards,
-    load_board_data, open_boards_folder, rename_board, save_board_data, set_active_board,
-    set_boards_index, set_collaboration_link,
+    load_board_data, rename_board, save_board_data, set_active_board, set_boards_index,
+    set_collaboration_link,
 };
 use tauri::{Emitter, Listener, Manager};
 
@@ -51,7 +51,6 @@ pub fn run() {
             set_collaboration_link,
             duplicate_board,
             set_boards_index,
-            open_boards_folder,
             export_boards,
             import_boards
         ])

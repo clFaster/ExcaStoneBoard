@@ -2,13 +2,12 @@ use chrono::Utc;
 use rusqlite::params;
 use serde_json::Value as JsonValue;
 use std::fs;
-use std::process::Command;
 use tauri::AppHandle;
 use uuid::Uuid;
 
 use crate::db::{
     board_exists, board_id_exists, default_board_data, first_board_id, first_board_id_from_db,
-    get_board_by_id, get_boards_dir, get_setting, load_board_data_value, load_boards_index_from_db,
+    get_board_by_id, get_setting, load_board_data_value, load_boards_index_from_db,
     normalize_active_board_id, open_db, set_setting,
 };
 use crate::models::{
@@ -272,27 +271,6 @@ pub(crate) fn duplicate_board(
 
     tx.commit().map_err(|e| e.to_string())?;
     Ok(new_board)
-}
-
-#[tauri::command]
-pub(crate) fn open_boards_folder(app: AppHandle) -> Result<(), String> {
-    let boards_dir = get_boards_dir(&app)?;
-    let path = boards_dir
-        .to_str()
-        .ok_or_else(|| "Invalid boards directory path".to_string())?
-        .to_string();
-
-    let mut command = if cfg!(target_os = "windows") {
-        Command::new("explorer")
-    } else if cfg!(target_os = "macos") {
-        Command::new("open")
-    } else {
-        Command::new("xdg-open")
-    };
-
-    command.arg(&path).spawn().map_err(|e| e.to_string())?;
-
-    Ok(())
 }
 
 #[tauri::command]

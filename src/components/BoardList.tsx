@@ -16,7 +16,6 @@ import {
   faFileCode,
   faFileImage,
   faGear,
-  faFolderOpen,
   faGripVertical,
   faPen,
   faPlus,
@@ -67,7 +66,6 @@ interface BoardListProps {
   onExportSvg: () => void;
   onExportBoards: () => Promise<void>;
   onImportBoards: (filePath: string, selectedIndices: number[]) => Promise<BoardsImportResult>;
-  onOpenBoardsFolder: () => Promise<void>;
   exportDisabled: boolean;
   boardsExporting: boolean;
   boardsImporting: boolean;
@@ -422,7 +420,6 @@ export function BoardList({
   onExportSvg,
   onExportBoards,
   onImportBoards,
-  onOpenBoardsFolder,
   exportDisabled,
   boardsExporting,
   boardsImporting,
@@ -1459,10 +1456,6 @@ export function BoardList({
                     >
                       <FontAwesomeIcon icon={faUpload} />
                       {boardsImporting ? 'Importing...' : 'Import boards'}
-                    </button>
-                    <button type="button" className="settings-action-btn" onClick={onOpenBoardsFolder}>
-                      <FontAwesomeIcon icon={faFolderOpen} />
-                      Open boards folder
                     </button>
                   </div>
                 </div>
