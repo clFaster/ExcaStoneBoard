@@ -12,5 +12,9 @@
   "signing": {
     "pfx": null,
     "pfxPassword": null
+  },
+  "resourceIndex": {
+    "enabled": true,
+    "keepConfig": false
   }
 }
