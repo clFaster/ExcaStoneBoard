@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { getVersion } from '@tauri-apps/api/app';
 import { confirm, open } from '@tauri-apps/plugin-dialog';
 import { readTextFile } from '@tauri-apps/plugin-fs';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -471,6 +472,7 @@ export function BoardList({
   const [importSourceName, setImportSourceName] = useState<string | null>(null);
   const [importFilePath, setImportFilePath] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
 
   const [dragState, setDragState] = useState<DragState>({
     activeId: null,
@@ -604,6 +606,25 @@ export function BoardList({
       return Object.keys(next).length === Object.keys(prev).length ? prev : next;
     });
   }, [items]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    void getVersion()
+      .then((version) => {
+        if (!mounted) return;
+        setAppVersion(version);
+      })
+      .catch((error) => {
+        console.warn('Failed to read app version:', error);
+        if (!mounted) return;
+        setAppVersion('Unknown');
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // Cleanup folders (convert single-item folders to boards, remove empty ones)
   useEffect(() => {
@@ -1474,18 +1495,19 @@ export function BoardList({
         {!importDialogOpen && importError && (
           <div className="settings-error">{importError}</div>
         )}
-        <div className="settings-section">
-          <div className="settings-section-title">Sidebar</div>
-          <label className="settings-toggle">
-            <input
+                <div className="settings-section">
+                  <div className="settings-section-title">Sidebar</div>
+                  <label className="settings-toggle">
+                    <input
               type="checkbox"
               checked={showTimestamps}
               onChange={(e) => setShowTimestamps(e.target.checked)}
             />
             <span className="toggle-track" aria-hidden="true"></span>
-            <span className="toggle-text">Show timestamps in sidebar</span>
-          </label>
-        </div>
+                    <span className="toggle-text">Show timestamps in sidebar</span>
+                  </label>
+                </div>
+                <div className="settings-version">Version {appVersion ?? 'Loading...'}</div>
                 <div className="modal-actions">
                   <button className="cancel-btn" onClick={closeSettings}>
                     Close

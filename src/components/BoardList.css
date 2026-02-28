@@ -914,6 +914,12 @@
   margin-bottom: var(--space-3);
 }
 
+.settings-version {
+  margin: var(--space-1) 0 var(--space-4) 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 .import-modal {
   width: 520px;
   max-width: 92%;
