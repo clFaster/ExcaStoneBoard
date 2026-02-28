@@ -1,4 +1,4 @@
-# ExcaStoneBoard
+# ExcaStoneBoard <img src="src-tauri/icons/128x128.png" alt="ExcaStoneBoard Logo" width="30" height="30" style="vertical-align: middle;"/>
 
 <div align="center">
 
