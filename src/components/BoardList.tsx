@@ -1,8 +1,9 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { getVersion } from '@tauri-apps/api/app';
-import { confirm, open } from '@tauri-apps/plugin-dialog';
+import { confirm, open as openDialog } from '@tauri-apps/plugin-dialog';
 import { readTextFile } from '@tauri-apps/plugin-fs';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faArrowUpRightFromSquare,
@@ -473,6 +474,7 @@ export function BoardList({
   const [importFilePath, setImportFilePath] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  const releasesUrl = 'https://github.com/clFaster/ExcaStoneBoard/releases';
 
   const [dragState, setDragState] = useState<DragState>({
     activeId: null,
@@ -730,6 +732,15 @@ export function BoardList({
     setSettingsOpen(false);
   };
 
+  const handleOpenReleases = async () => {
+    try {
+      await openUrl(releasesUrl);
+    } catch (error) {
+      console.warn('Failed to open releases page with opener plugin:', error);
+      window.open(releasesUrl, '_blank', 'noopener,noreferrer');
+    }
+  };
+
   const buildImportBoards = (payload: Partial<BoardsExportFile>): ImportBoardEntry[] => {
     if (!Array.isArray(payload.boards)) return [];
     const seen = new Set<string>();
@@ -758,7 +769,7 @@ export function BoardList({
   const handleOpenImport = async () => {
     setImportError(null);
     try {
-      const result = await open({
+      const result = await openDialog({
         title: 'Import boards',
         multiple: false,
         directory: false,
@@ -1507,7 +1518,17 @@ export function BoardList({
                     <span className="toggle-text">Show timestamps in sidebar</span>
                   </label>
                 </div>
-                <div className="settings-version">Version {appVersion ?? 'Loading...'}</div>
+                <div className="settings-version-row">
+                  <span className="settings-version-label">Version</span>
+                  <button
+                    type="button"
+                    className="settings-version-link"
+                    onClick={handleOpenReleases}
+                  >
+                    {appVersion ? (appVersion === 'Unknown' ? 'Unknown' : `v${appVersion}`) : 'Loading...'}
+                    <FontAwesomeIcon icon={faArrowUpRightFromSquare} />
+                  </button>
+                </div>
                 <div className="modal-actions">
                   <button className="cancel-btn" onClick={closeSettings}>
                     Close

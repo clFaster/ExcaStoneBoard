@@ -1,7 +1,3 @@
 declare module '@tauri-apps/plugin-opener' {
-  export interface OpenOptions {
-    openWith?: string;
-  }
-
-  export function open(target: string, options?: OpenOptions): Promise<void>;
+  export function openUrl(url: string | URL, openWith?: string): Promise<void>;
 }

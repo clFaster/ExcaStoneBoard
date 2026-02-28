@@ -914,10 +914,45 @@
   margin-bottom: var(--space-3);
 }
 
-.settings-version {
+.settings-version-row {
   margin: var(--space-1) 0 var(--space-4) 0;
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.settings-version-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--text-muted);
+}
+
+.settings-version-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-primary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color 0.15s ease;
+}
+
+.settings-version-link:hover {
+  color: var(--text-primary);
+}
+
+.settings-version-link:focus-visible {
+  outline: 1px solid var(--accent-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .import-modal {
