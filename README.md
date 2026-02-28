@@ -1,5 +1,12 @@
 # ExcaStoneBoard
 
+<div align="center">
+
+[![Download from Microsoft Store](https://img.shields.io/endpoint?url=https%3A%2F%2Fmicrosoft-store-badge.fly.dev%2Fapi%2Frating%3FstoreId%3D9N95C6FV59Z7%26market%3DUS&style=for-the-badge&label=Download+from+Microsoft+Store&color=brightgreen&logo=windows11)](https://www.microsoft.com/store/productId/9N95C6FV59Z7)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+
+</div>
+
 An unofficial multi-board manager for Excalidraw - manage multiple drawing boards without losing access to old ones.
 
 ## Features
