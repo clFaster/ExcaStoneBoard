@@ -24,7 +24,14 @@ function App() {
     loadBoards,
   } = useBoards();
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      const stored = localStorage.getItem('boards.sidebarCollapsed');
+      return stored ? Boolean(JSON.parse(stored)) : false;
+    } catch {
+      return false;
+    }
+  });
   const [currentBoardData, setCurrentBoardData] = useState<ExcalidrawData | null>(null);
   const [boardDataLoading, setBoardDataLoading] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
@@ -43,6 +50,14 @@ function App() {
     }
     return null;
   })();
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('boards.sidebarCollapsed', JSON.stringify(sidebarCollapsed));
+    } catch {
+      // ignore storage errors
+    }
+  }, [sidebarCollapsed]);
 
   // Load board data when active board changes
   useEffect(() => {
@@ -216,7 +231,7 @@ function App() {
         boardsExporting={boardsExportBusy}
         boardsImporting={boardsImportBusy}
         isCollapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+        onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
       />
       {activeBoardId && boardDataLoading ? (
         <div className="excalidraw-frame">
