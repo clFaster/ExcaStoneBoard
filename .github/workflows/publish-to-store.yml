@@ -161,3 +161,11 @@ jobs:
       - name: MSSTORE - Publish package
         run: |
           msstore publish "${{ steps.find_msix.outputs.bundle_path }}" -id ${{ secrets.STORE_APP_ID }}
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v${{ needs.update-version.outputs.new_version }}"
+          gh release create $tag --generate-notes
+          gh release upload $tag "${{ steps.find_msix.outputs.bundle_path }}"
