@@ -37,6 +37,8 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -57,6 +59,18 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Lint frontend
+        run: pnpm run lint
+
+      - name: Check frontend formatting
+        run: pnpm run format:check
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+
+      - name: Run Clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
       - name: Setup AppImage environment (Linux)
         if: matrix.platform == 'ubuntu-latest'

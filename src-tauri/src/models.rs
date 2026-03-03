@@ -25,19 +25,10 @@ pub enum BoardListItem {
     Folder(BoardFolder),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct BoardsIndex {
     pub items: Vec<BoardListItem>,
     pub active_board_id: Option<String>,
-}
-
-impl Default for BoardsIndex {
-    fn default() -> Self {
-        BoardsIndex {
-            items: Vec::new(),
-            active_board_id: None,
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
