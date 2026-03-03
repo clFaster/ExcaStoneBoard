@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { getVersion } from '@tauri-apps/api/app';
 import { confirm, open as openDialog } from '@tauri-apps/plugin-dialog';
@@ -521,11 +521,18 @@ export function BoardList({
     [importBoards, importSelection],
   );
 
-  const getBoardById = (boardId: string) =>
-    flattenedBoards.find((entry) => entry.board.id === boardId)?.board;
+  const getBoardById = useCallback(
+    (boardId: string) => flattenedBoards.find((entry) => entry.board.id === boardId)?.board,
+    [flattenedBoards],
+  );
 
-  const getFolderById = (folderId: string) =>
-    items.find((item) => item.type === 'folder' && item.id === folderId) as BoardFolder | undefined;
+  const getFolderById = useCallback(
+    (folderId: string) =>
+      items.find((item) => item.type === 'folder' && item.id === folderId) as
+        | BoardFolder
+        | undefined,
+    [items],
+  );
 
   // ---------------------------------------------------------------------------
   // Effects
@@ -1263,7 +1270,7 @@ export function BoardList({
       return getFolderById(parsed.id);
     }
     return getBoardById(parsed.id);
-  }, [dragState.activeId, items]);
+  }, [dragState.activeId, getBoardById, getFolderById]);
 
   // ---------------------------------------------------------------------------
   // Render collapsed view
