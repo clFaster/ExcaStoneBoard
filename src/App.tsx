@@ -92,9 +92,12 @@ function App() {
   }, [activeBoardId, loadBoardData]);
 
   // Handle data changes from Excalidraw
-  const handleDataChange = useCallback(async (boardId: string, data: ExcalidrawData) => {
-    await saveBoardData(boardId, data);
-  }, [saveBoardData]);
+  const handleDataChange = useCallback(
+    async (boardId: string, data: ExcalidrawData) => {
+      await saveBoardData(boardId, data);
+    },
+    [saveBoardData],
+  );
 
   const runExport = useCallback(
     async (action: () => Promise<void>) => {
@@ -111,7 +114,7 @@ function App() {
         setExportBusy(false);
       }
     },
-    [exportBusy]
+    [exportBusy],
   );
 
   const handleExportPng = useCallback(async () => {
@@ -188,7 +191,7 @@ function App() {
         setBoardsImportBusy(false);
       }
     },
-    [boardsImportBusy, loadBoards]
+    [boardsImportBusy, loadBoards],
   );
 
   // Get the active board's collaboration link

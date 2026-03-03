@@ -115,7 +115,8 @@ const stripBoardType = (board: Board): Board => {
 };
 
 const generateFolderId = () =>
-  globalThis.crypto?.randomUUID?.() ?? `folder-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  globalThis.crypto?.randomUUID?.() ??
+  `folder-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 // =============================================================================
 // Draggable/Droppable Item Components
@@ -296,10 +297,7 @@ function DraggableFolderItem({
   const dragClass = isDragging || isDragSource ? 'is-dragging' : '';
 
   return (
-    <div
-      ref={setNodeRef}
-      className={`board-folder ${dragClass} ${dropClass}`}
-    >
+    <div ref={setNodeRef} className={`board-folder ${dragClass} ${dropClass}`}>
       {isEditing ? (
         <div className="board-folder-header">
           <div
@@ -497,14 +495,14 @@ export function BoardList({
       items.flatMap<FlattenedBoard>((item) =>
         item.type === 'folder'
           ? item.items.map((board) => ({ board, folderId: item.id }))
-          : [{ board: item }]
+          : [{ board: item }],
       ),
-    [items]
+    [items],
   );
 
   const existingBoardIds = useMemo(
     () => new Set(flattenedBoards.map((entry) => entry.board.id)),
-    [flattenedBoards]
+    [flattenedBoards],
   );
 
   const duplicateImportIds = useMemo(() => {
@@ -520,7 +518,7 @@ export function BoardList({
 
   const selectedImportBoards = useMemo(
     () => importBoards.filter((board) => Boolean(importSelection[board.key])),
-    [importBoards, importSelection]
+    [importBoards, importSelection],
   );
 
   const getBoardById = (boardId: string) =>
@@ -597,7 +595,9 @@ export function BoardList({
   }, [showTimestamps]);
 
   useEffect(() => {
-    const folderIds = new Set(items.filter((item) => item.type === 'folder').map((item) => item.id));
+    const folderIds = new Set(
+      items.filter((item) => item.type === 'folder').map((item) => item.id),
+    );
     setCollapsedFolders((prev) => {
       const next: Record<string, boolean> = {};
       for (const [id, value] of Object.entries(prev)) {
@@ -672,7 +672,7 @@ export function BoardList({
       const nextItems = items.map((item) =>
         item.type === 'folder' && item.id === folderId
           ? { ...item, name: editFolderName.trim() }
-          : item
+          : item,
       );
       onUpdateItems(nextItems);
     }
@@ -792,12 +792,13 @@ export function BoardList({
       const selection = Object.fromEntries(
         entries.map((entry) => {
           const hasId = Boolean(entry.id);
-          const isDuplicate = hasId && (existingBoardIds.has(entry.id) || seenImportIds.has(entry.id));
+          const isDuplicate =
+            hasId && (existingBoardIds.has(entry.id) || seenImportIds.has(entry.id));
           if (hasId) {
             seenImportIds.add(entry.id);
           }
           return [entry.key, !isDuplicate];
-        })
+        }),
       );
       const sourceName = filePath.split(/[\\/]/).pop() || 'Import file';
       setImportBoards(entries);
@@ -842,7 +843,11 @@ export function BoardList({
     }
   };
 
-  const openMenu = (event: React.MouseEvent<HTMLButtonElement>, type: 'board' | 'folder', id: string) => {
+  const openMenu = (
+    event: React.MouseEvent<HTMLButtonElement>,
+    type: 'board' | 'folder',
+    id: string,
+  ) => {
     event.stopPropagation();
     const anchorRect = event.currentTarget.getBoundingClientRect();
     setActiveMenu((prev) => {
@@ -856,7 +861,7 @@ export function BoardList({
   // ---------------------------------------------------------------------------
   // Helper Functions
   // ---------------------------------------------------------------------------
-  const cleanupFolders = (nextItems: BoardListItem[]): BoardListItem[] => {
+  function cleanupFolders(nextItems: BoardListItem[]): BoardListItem[] {
     const seen = new Set<string>();
     const normalized: BoardListItem[] = [];
 
@@ -882,7 +887,7 @@ export function BoardList({
     }
 
     return normalized;
-  };
+  }
 
   const removeBoardFromItems = (boardId: string, sourceItems: BoardListItem[]): BoardListItem[] => {
     return sourceItems
@@ -897,7 +902,10 @@ export function BoardList({
       .filter((item): item is BoardListItem => item !== null);
   };
 
-  const removeFolderFromItems = (folderId: string, sourceItems: BoardListItem[]): BoardListItem[] => {
+  const removeFolderFromItems = (
+    folderId: string,
+    sourceItems: BoardListItem[],
+  ): BoardListItem[] => {
     return sourceItems.filter((item) => !(item.type === 'folder' && item.id === folderId));
   };
 
@@ -907,7 +915,7 @@ export function BoardList({
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 8 },
-    })
+    }),
   );
 
   const calculateDropPosition = (
@@ -915,7 +923,7 @@ export function BoardList({
     targetRect: { top: number; height: number },
     activeType: 'board' | 'folder',
     overType: 'board' | 'folder',
-    isOverInFolder: boolean
+    isOverInFolder: boolean,
   ): DropPosition => {
     const relativeY = pointerY - targetRect.top;
     const ratio = Math.max(0, Math.min(1, relativeY / targetRect.height));
@@ -994,7 +1002,9 @@ export function BoardList({
 
     const activeParsed = parseDragId(active.id);
     const overParsed = parseDragId(over.id);
-    const overData = over.data.current as { type?: string; inFolder?: boolean; parentFolderId?: string } | undefined;
+    const overData = over.data.current as
+      | { type?: string; inFolder?: boolean; parentFolderId?: string }
+      | undefined;
     const isOverInFolder = overData?.inFolder ?? false;
 
     const dropPosition = calculateDropPosition(
@@ -1002,7 +1012,7 @@ export function BoardList({
       over.rect,
       activeParsed.type,
       overParsed.type,
-      isOverInFolder
+      isOverInFolder,
     );
 
     setDragState((prev) => ({
@@ -1030,7 +1040,9 @@ export function BoardList({
 
     const activeParsed = parseDragId(active.id);
     const overParsed = parseDragId(over.id);
-    const overData = over.data.current as { type?: string; inFolder?: boolean; parentFolderId?: string } | undefined;
+    const overData = over.data.current as
+      | { type?: string; inFolder?: boolean; parentFolderId?: string }
+      | undefined;
     const isOverInFolder = overData?.inFolder ?? false;
     const parentFolderId = overData?.parentFolderId;
 
@@ -1049,7 +1061,7 @@ export function BoardList({
     over: { type: 'board' | 'folder'; id: string },
     isOverInFolder: boolean,
     parentFolderId: string | undefined,
-    dropPosition: DropPosition
+    dropPosition: DropPosition,
   ) => {
     // When over an item inside a folder, target the parent folder
     const targetId = isOverInFolder && parentFolderId ? parentFolderId : over.id;
@@ -1058,7 +1070,9 @@ export function BoardList({
     // Cannot drop folder into itself
     if (targetIsFolder && targetId === folderId) return;
 
-    const folder = items.find((item) => item.type === 'folder' && item.id === folderId) as BoardFolder | undefined;
+    const folder = items.find((item) => item.type === 'folder' && item.id === folderId) as
+      | BoardFolder
+      | undefined;
     if (!folder) return;
 
     // Remove folder from current position
@@ -1068,13 +1082,14 @@ export function BoardList({
     let targetIndex = newItems.findIndex((item) =>
       targetIsFolder
         ? item.type === 'folder' && item.id === targetId
-        : item.type === 'board' && item.id === targetId
+        : item.type === 'board' && item.id === targetId,
     );
 
     if (targetIndex === -1) targetIndex = newItems.length;
 
     // Insert at new position
-    const insertIndex = dropPosition === 'after' || dropPosition === 'inside' ? targetIndex + 1 : targetIndex;
+    const insertIndex =
+      dropPosition === 'after' || dropPosition === 'inside' ? targetIndex + 1 : targetIndex;
     newItems = [...newItems.slice(0, insertIndex), folder, ...newItems.slice(insertIndex)];
 
     onUpdateItems(cleanupFolders(newItems));
@@ -1084,7 +1099,7 @@ export function BoardList({
     boardId: string,
     over: { type: 'board' | 'folder'; id: string },
     isOverInFolder: boolean,
-    dropPosition: DropPosition
+    dropPosition: DropPosition,
   ) => {
     const sourceBoard = getBoardById(boardId);
     if (!sourceBoard) return;
@@ -1138,7 +1153,9 @@ export function BoardList({
     // Case 3: Dropping board BEFORE/AFTER a folder (at root level)
     if (over.type === 'folder' && (dropPosition === 'before' || dropPosition === 'after')) {
       let newItems = removeBoardFromItems(boardId, items);
-      const targetIndex = newItems.findIndex((item) => item.type === 'folder' && item.id === over.id);
+      const targetIndex = newItems.findIndex(
+        (item) => item.type === 'folder' && item.id === over.id,
+      );
       if (targetIndex === -1) return;
 
       const insertIndex = dropPosition === 'after' ? targetIndex + 1 : targetIndex;
@@ -1185,7 +1202,7 @@ export function BoardList({
           ...folder.items.slice(insertIdx),
         ];
         newItems = newItems.map((item, idx) =>
-          idx === targetRootIndex ? { ...item, items: newFolderItems } : item
+          idx === targetRootIndex ? { ...item, items: newFolderItems } : item,
         ) as BoardListItem[];
       } else {
         // Target is at root level
@@ -1363,48 +1380,48 @@ export function BoardList({
                 const isFolderDragSource = dragState.activeId === folderId;
 
                 return (
-                    <DraggableFolderItem
-                      key={item.id}
-                      folder={item}
-                      isCollapsed={isFolderCollapsed(item.id)}
-                      isEditing={editingFolderId === item.id}
-                      editName={editFolderName}
-                      onEditNameChange={setEditFolderName}
-                      onSaveEdit={() => handleSaveFolderEdit(item.id)}
-                      onCancelEdit={() => setEditingFolderId(null)}
-                      onToggleCollapse={() => toggleFolderCollapsed(item.id)}
-                      onOpenMenu={(e) => openMenu(e, 'folder', item.id)}
-                      disabled={dragDisabled || editingFolderId === item.id}
-                      dropPosition={folderDropPosition}
-                      isDragSource={isFolderDragSource}
-                    >
-                      {item.items.map((board) => {
+                  <DraggableFolderItem
+                    key={item.id}
+                    folder={item}
+                    isCollapsed={isFolderCollapsed(item.id)}
+                    isEditing={editingFolderId === item.id}
+                    editName={editFolderName}
+                    onEditNameChange={setEditFolderName}
+                    onSaveEdit={() => handleSaveFolderEdit(item.id)}
+                    onCancelEdit={() => setEditingFolderId(null)}
+                    onToggleCollapse={() => toggleFolderCollapsed(item.id)}
+                    onOpenMenu={(e) => openMenu(e, 'folder', item.id)}
+                    disabled={dragDisabled || editingFolderId === item.id}
+                    dropPosition={folderDropPosition}
+                    isDragSource={isFolderDragSource}
+                  >
+                    {item.items.map((board) => {
                       const isOverBoard = dragState.overId === board.id;
                       const boardDropPosition = isOverBoard ? dragState.dropPosition : null;
                       const isBoardDragSource = dragState.activeId === board.id;
 
-                        return (
-                          <DraggableBoardItem
-                            key={board.id}
-                            board={board}
-                            isActive={board.id === activeBoardId}
-                            isEditing={editingId === board.id}
-                            editName={editName}
-                            onEditNameChange={setEditName}
-                            onSaveEdit={() => handleSaveEdit(board.id)}
-                            onCancelEdit={() => setEditingId(null)}
-                            onSelect={() => onSelectBoard(board.id)}
-                            onOpenMenu={(e) => openMenu(e, 'board', board.id)}
-                            formatDate={formatDate}
-                            showTimestamps={showTimestamps}
-                            disabled={dragDisabled || editingId === board.id}
-                            inFolder
-                            parentFolderId={item.id}
-                            dropPosition={boardDropPosition}
-                            isDragSource={isBoardDragSource}
-                          />
-                        );
-                      })}
+                      return (
+                        <DraggableBoardItem
+                          key={board.id}
+                          board={board}
+                          isActive={board.id === activeBoardId}
+                          isEditing={editingId === board.id}
+                          editName={editName}
+                          onEditNameChange={setEditName}
+                          onSaveEdit={() => handleSaveEdit(board.id)}
+                          onCancelEdit={() => setEditingId(null)}
+                          onSelect={() => onSelectBoard(board.id)}
+                          onOpenMenu={(e) => openMenu(e, 'board', board.id)}
+                          formatDate={formatDate}
+                          showTimestamps={showTimestamps}
+                          disabled={dragDisabled || editingId === board.id}
+                          inFolder
+                          parentFolderId={item.id}
+                          dropPosition={boardDropPosition}
+                          isDragSource={isBoardDragSource}
+                        />
+                      );
+                    })}
                   </DraggableFolderItem>
                 );
               }
@@ -1503,18 +1520,18 @@ export function BoardList({
                     <span className="toggle-text">Hide export/copy buttons</span>
                   </label>
                 </div>
-        {!importDialogOpen && importError && (
-          <div className="settings-error">{importError}</div>
-        )}
+                {!importDialogOpen && importError && (
+                  <div className="settings-error">{importError}</div>
+                )}
                 <div className="settings-section">
                   <div className="settings-section-title">Sidebar</div>
                   <label className="settings-toggle">
                     <input
-              type="checkbox"
-              checked={showTimestamps}
-              onChange={(e) => setShowTimestamps(e.target.checked)}
-            />
-            <span className="toggle-track" aria-hidden="true"></span>
+                      type="checkbox"
+                      checked={showTimestamps}
+                      onChange={(e) => setShowTimestamps(e.target.checked)}
+                    />
+                    <span className="toggle-track" aria-hidden="true"></span>
                     <span className="toggle-text">Show timestamps in sidebar</span>
                   </label>
                 </div>
@@ -1525,7 +1542,11 @@ export function BoardList({
                     className="settings-version-link"
                     onClick={handleOpenReleases}
                   >
-                    {appVersion ? (appVersion === 'Unknown' ? 'Unknown' : `v${appVersion}`) : 'Loading...'}
+                    {appVersion
+                      ? appVersion === 'Unknown'
+                        ? 'Unknown'
+                        : `v${appVersion}`
+                      : 'Loading...'}
                     <FontAwesomeIcon icon={faArrowUpRightFromSquare} />
                   </button>
                 </div>
@@ -1536,7 +1557,7 @@ export function BoardList({
                 </div>
               </div>
             </div>,
-            document.body
+            document.body,
           )
         : null}
 
@@ -1548,10 +1569,7 @@ export function BoardList({
                 if (!boardsImporting) closeImportDialog();
               }}
             >
-              <div
-                className="modal import-modal"
-                onClick={(event) => event.stopPropagation()}
-              >
+              <div className="modal import-modal" onClick={(event) => event.stopPropagation()}>
                 <h3>Import boards</h3>
                 {importSourceName && <p className="modal-hint">Source: {importSourceName}</p>}
                 <div className="import-controls">
@@ -1599,7 +1617,11 @@ export function BoardList({
                 <div className="import-summary">{selectedImportBoards.length} selected</div>
                 {importError && <div className="import-error">{importError}</div>}
                 <div className="modal-actions">
-                  <button className="cancel-btn" onClick={closeImportDialog} disabled={boardsImporting}>
+                  <button
+                    className="cancel-btn"
+                    onClick={closeImportDialog}
+                    disabled={boardsImporting}
+                  >
                     Cancel
                   </button>
                   <button
@@ -1612,7 +1634,7 @@ export function BoardList({
                 </div>
               </div>
             </div>,
-            document.body
+            document.body,
           )
         : null}
 
@@ -1627,7 +1649,11 @@ export function BoardList({
           'items' in activeItem ? (
             <FolderOverlay folder={activeItem as BoardFolder} />
           ) : (
-            <BoardOverlay board={activeItem as Board} formatDate={formatDate} showTimestamps={showTimestamps} />
+            <BoardOverlay
+              board={activeItem as Board}
+              formatDate={formatDate}
+              showTimestamps={showTimestamps}
+            />
           )
         ) : null}
       </DragOverlay>
@@ -1642,7 +1668,7 @@ export function BoardList({
             >
               {menuContent}
             </div>,
-            document.body
+            document.body,
           )
         : null}
     </DndContext>

@@ -81,18 +81,20 @@ export function useBoards() {
     }
   };
 
-
-  const saveBoardData = useCallback(async (boardId: string, data: ExcalidrawData): Promise<boolean> => {
-    try {
-      // Serialize ExcalidrawData to JSON string for storage
-      const dataStr = JSON.stringify(data);
-      await invoke('save_board_data', { boardId, data: dataStr });
-      return true;
-    } catch (e) {
-      setError(String(e));
-      return false;
-    }
-  }, []);
+  const saveBoardData = useCallback(
+    async (boardId: string, data: ExcalidrawData): Promise<boolean> => {
+      try {
+        // Serialize ExcalidrawData to JSON string for storage
+        const dataStr = JSON.stringify(data);
+        await invoke('save_board_data', { boardId, data: dataStr });
+        return true;
+      } catch (e) {
+        setError(String(e));
+        return false;
+      }
+    },
+    [],
+  );
 
   const loadBoardData = useCallback(async (boardId: string): Promise<ExcalidrawData | null> => {
     try {
