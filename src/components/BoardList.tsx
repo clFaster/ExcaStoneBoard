@@ -104,6 +104,20 @@ interface ImportBoardEntry extends BoardsExportEntry {
 // Utility Functions
 // =============================================================================
 
+const pruneCollapsedFolderState = (
+  collapsed: Record<string, boolean>,
+  items: BoardListItem[],
+): Record<string, boolean> => {
+  const folderIds = new Set(items.filter((item) => item.type === 'folder').map((item) => item.id));
+  const next: Record<string, boolean> = {};
+  for (const [id, value] of Object.entries(collapsed)) {
+    if (folderIds.has(id)) {
+      next[id] = value;
+    }
+  }
+  return next;
+};
+
 // =============================================================================
 // Draggable/Droppable Item Components
 // =============================================================================
@@ -558,7 +572,10 @@ export function BoardList({
     if (top + menuRect.height > window.innerHeight - padding) {
       top = Math.max(padding, activeMenu.anchorRect.top - menuRect.height - 6);
     }
-    setMenuStyle({ top, left });
+    const frameId = window.requestAnimationFrame(() => {
+      setMenuStyle({ top, left });
+    });
+    return () => window.cancelAnimationFrame(frameId);
   }, [activeMenu]);
 
   useEffect(() => {
@@ -586,18 +603,14 @@ export function BoardList({
   }, [showTimestamps]);
 
   useEffect(() => {
-    const folderIds = new Set(
-      items.filter((item) => item.type === 'folder').map((item) => item.id),
-    );
-    setCollapsedFolders((prev) => {
-      const next: Record<string, boolean> = {};
-      for (const [id, value] of Object.entries(prev)) {
-        if (folderIds.has(id)) {
-          next[id] = value;
-        }
-      }
-      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
-    });
+    const timeoutId = window.setTimeout(() => {
+      setCollapsedFolders((prev) => {
+        const next = pruneCollapsedFolderState(prev, items);
+        return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+      });
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
   }, [items]);
 
   useEffect(() => {
@@ -884,11 +897,14 @@ export function BoardList({
 
   // Hide thumbnail preview when scrolling, dragging, or opening menus
   useEffect(() => {
-    setThumbnailPreview(null);
+    const timeoutId = window.setTimeout(() => {
+      setThumbnailPreview(null);
+    }, 0);
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current);
       hoverTimerRef.current = null;
     }
+    return () => window.clearTimeout(timeoutId);
   }, [activeMenu, dragState.activeId]);
 
   useEffect(() => {

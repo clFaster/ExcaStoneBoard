@@ -12,6 +12,34 @@ interface BoardLocation {
   folderIndex?: number;
 }
 
+interface BoardDropContext {
+  sourceBoard: Board;
+  sourceBoardId: string;
+  items: BoardListItem[];
+}
+
+interface FolderTargetDropInput {
+  context: BoardDropContext;
+  targetFolderId: string;
+  dropPosition: DropPosition;
+}
+
+interface BoardTargetDropInput {
+  context: BoardDropContext;
+  targetBoardId: string;
+  dropPosition: DropPosition;
+}
+
+interface FolderInsideDropInput {
+  context: BoardDropContext;
+  targetFolderId: string;
+}
+
+interface CreateFolderDropInput {
+  context: BoardDropContext;
+  targetBoardId: string;
+}
+
 const asBoardListBoard = (board: Board): BoardListBoard => ({
   ...board,
   type: 'board',
@@ -55,6 +83,24 @@ const isFolderEdgeDrop = (over: DragItemRef, dropPosition: DropPosition): boolea
 
 const ensureDropIndex = (targetIndex: number, dropPosition: DropPosition): number =>
   dropPosition === 'after' || dropPosition === 'inside' ? targetIndex + 1 : targetIndex;
+
+const resolveFolderDropTarget = (
+  over: DragItemRef,
+  isOverInFolder: boolean,
+  parentFolderId?: string,
+): DragItemRef => {
+  if (isOverInFolder && parentFolderId) {
+    return { type: 'folder', id: parentFolderId };
+  }
+  return { type: isOverInFolder ? 'folder' : over.type, id: over.id };
+};
+
+const findTargetIndex = (items: BoardListItem[], target: DragItemRef): number => {
+  if (target.type === 'folder') {
+    return items.findIndex((item) => item.type === 'folder' && item.id === target.id);
+  }
+  return items.findIndex((item) => item.type === 'board' && item.id === target.id);
+};
 
 export const parseDragId = (id: string): DragItemRef => {
   if (id.startsWith('folder:')) {
@@ -180,82 +226,68 @@ const findBoardLocation = (items: BoardListItem[], boardId: string): BoardLocati
   return { rootIndex: folderMatch.rootIndex, folderIndex: folderMatch.folderIndex };
 };
 
-const dropBoardInsideFolder = (
-  sourceBoard: Board,
-  targetFolderId: string,
-  sourceBoardId: string,
-  items: BoardListItem[],
-): BoardListItem[] | null => {
-  const targetFolder = findFolderById(items, targetFolderId);
+const dropBoardInsideFolder = (input: FolderInsideDropInput): BoardListItem[] | null => {
+  const { context, targetFolderId } = input;
+  const targetFolder = findFolderById(context.items, targetFolderId);
   if (!targetFolder) return null;
 
-  const withoutSource = removeBoardFromItems(sourceBoardId, items);
+  const withoutSource = removeBoardFromItems(context.sourceBoardId, context.items);
   const withInserted = withoutSource.map((item) =>
     item.type === 'folder' && item.id === targetFolder.id
-      ? { ...item, items: [...item.items, stripBoardType(sourceBoard)] }
+      ? { ...item, items: [...item.items, stripBoardType(context.sourceBoard)] }
       : item,
   );
   return cleanupFolders(withInserted);
 };
 
-const createFolderFromBoards = (
-  sourceBoard: Board,
-  sourceBoardId: string,
-  targetBoardId: string,
-  items: BoardListItem[],
-): BoardListItem[] | null => {
-  const targetBoard = findBoardById(items, targetBoardId);
-  if (!targetBoard || targetBoard.id === sourceBoardId) return null;
+const createFolderFromBoards = (input: CreateFolderDropInput): BoardListItem[] | null => {
+  const { context, targetBoardId } = input;
+  const targetBoard = findBoardById(context.items, targetBoardId);
+  if (!targetBoard || targetBoard.id === context.sourceBoardId) return null;
 
-  const targetRootIndex = findRootBoardIndex(items, targetBoardId);
+  const targetRootIndex = findRootBoardIndex(context.items, targetBoardId);
   if (targetRootIndex === -1) return null;
 
-  let nextItems = removeBoardFromItems(sourceBoardId, items);
+  let nextItems = removeBoardFromItems(context.sourceBoardId, context.items);
   nextItems = removeBoardFromItems(targetBoardId, nextItems);
 
   const newFolder: BoardFolder = {
     type: 'folder',
     id: generateFolderId(),
     name: targetBoard.name,
-    items: [stripBoardType(targetBoard), stripBoardType(sourceBoard)],
+    items: [stripBoardType(targetBoard), stripBoardType(context.sourceBoard)],
   };
 
   const insertIndex = Math.min(targetRootIndex, nextItems.length);
   return cleanupFolders(insertAt(nextItems, insertIndex, newFolder));
 };
 
-const dropBoardAroundFolder = (
-  sourceBoard: Board,
-  sourceBoardId: string,
-  targetFolderId: string,
-  dropPosition: DropPosition,
-  items: BoardListItem[],
-): BoardListItem[] | null => {
-  const nextItems = removeBoardFromItems(sourceBoardId, items);
+const dropBoardAroundFolder = (input: FolderTargetDropInput): BoardListItem[] | null => {
+  const { context, targetFolderId, dropPosition } = input;
+  const nextItems = removeBoardFromItems(context.sourceBoardId, context.items);
   const targetIndex = nextItems.findIndex(
     (item) => item.type === 'folder' && item.id === targetFolderId,
   );
   if (targetIndex === -1) return null;
 
   const insertIndex = dropPosition === 'after' ? targetIndex + 1 : targetIndex;
-  return cleanupFolders(insertAt(nextItems, insertIndex, asBoardListBoard(sourceBoard)));
+  return cleanupFolders(insertAt(nextItems, insertIndex, asBoardListBoard(context.sourceBoard)));
 };
 
-const dropBoardAroundBoard = (
-  sourceBoard: Board,
-  sourceBoardId: string,
-  targetBoardId: string,
-  dropPosition: DropPosition,
-  items: BoardListItem[],
-): BoardListItem[] | null => {
-  const nextItems = removeBoardFromItems(sourceBoardId, items);
+const dropBoardAroundBoard = (input: BoardTargetDropInput): BoardListItem[] | null => {
+  const { context, targetBoardId, dropPosition } = input;
+  const nextItems = removeBoardFromItems(context.sourceBoardId, context.items);
   const location = findBoardLocation(nextItems, targetBoardId);
   if (!location) return null;
 
   if (location.folderIndex !== undefined) {
     const folder = nextItems[location.rootIndex] as BoardFolder;
     const insertIndex = dropPosition === 'after' ? location.folderIndex + 1 : location.folderIndex;
-    const nextFolderItems = insertAt(folder.items, insertIndex, stripBoardType(sourceBoard));
+    const nextFolderItems = insertAt(
+      folder.items,
+      insertIndex,
+      stripBoardType(context.sourceBoard),
+    );
     const withFolderUpdate = nextItems.map((item, index) =>
       index === location.rootIndex ? { ...item, items: nextFolderItems } : item,
     );
@@ -263,7 +295,9 @@ const dropBoardAroundBoard = (
   }
 
   const rootInsertIndex = dropPosition === 'after' ? location.rootIndex + 1 : location.rootIndex;
-  return cleanupFolders(insertAt(nextItems, rootInsertIndex, asBoardListBoard(sourceBoard)));
+  return cleanupFolders(
+    insertAt(nextItems, rootInsertIndex, asBoardListBoard(context.sourceBoard)),
+  );
 };
 
 interface ApplyFolderDropInput {
@@ -283,19 +317,14 @@ export const applyFolderDrop = ({
   dropPosition,
   items,
 }: ApplyFolderDropInput): BoardListItem[] | null => {
-  const targetId = isOverInFolder && parentFolderId ? parentFolderId : over.id;
-  const targetType = isOverInFolder ? 'folder' : over.type;
-  if (targetType === 'folder' && targetId === folderId) return null;
+  const target = resolveFolderDropTarget(over, isOverInFolder, parentFolderId);
+  if (target.type === 'folder' && target.id === folderId) return null;
 
   const sourceFolder = findFolderById(items, folderId);
   if (!sourceFolder) return null;
 
   const nextItems = removeFolderFromItems(folderId, items);
-  const targetIndex = nextItems.findIndex((item) =>
-    targetType === 'folder'
-      ? item.type === 'folder' && item.id === targetId
-      : item.type === 'board' && item.id === targetId,
-  );
+  const targetIndex = findTargetIndex(nextItems, target);
   const resolvedTargetIndex = targetIndex === -1 ? nextItems.length : targetIndex;
   const insertIndex = ensureDropIndex(resolvedTargetIndex, dropPosition);
 
@@ -320,20 +349,22 @@ export const applyBoardDrop = ({
   const sourceBoard = findBoardById(items, boardId);
   if (!sourceBoard) return null;
 
+  const context: BoardDropContext = { sourceBoard, sourceBoardId: boardId, items };
+
   if (over.type === 'folder' && dropPosition === 'inside') {
-    return dropBoardInsideFolder(sourceBoard, over.id, boardId, items);
+    return dropBoardInsideFolder({ context, targetFolderId: over.id });
   }
 
   if (canCreateFolderFromBoards(over, dropPosition, isOverInFolder)) {
-    return createFolderFromBoards(sourceBoard, boardId, over.id, items);
+    return createFolderFromBoards({ context, targetBoardId: over.id });
   }
 
   if (isFolderEdgeDrop(over, dropPosition)) {
-    return dropBoardAroundFolder(sourceBoard, boardId, over.id, dropPosition, items);
+    return dropBoardAroundFolder({ context, targetFolderId: over.id, dropPosition });
   }
 
   if (over.type === 'board') {
-    return dropBoardAroundBoard(sourceBoard, boardId, over.id, dropPosition, items);
+    return dropBoardAroundBoard({ context, targetBoardId: over.id, dropPosition });
   }
 
   return null;
