@@ -77,7 +77,6 @@ interface BoardListProps {
 }
 
 type DropPosition = 'before' | 'after' | 'inside';
-type DropTarget = { type: 'board' | 'folder'; id: string };
 
 interface DragState {
   activeId: UniqueIdentifier | null;
