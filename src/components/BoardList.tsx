@@ -48,6 +48,17 @@ import type {
   BoardsExportFile,
   BoardsImportResult,
 } from '../types/board';
+import {
+  applyBoardDrop,
+  applyFolderDrop,
+  calculateDropPosition,
+  cleanupFolders,
+  findBoardById,
+  findFolderById,
+  makeDragId,
+  parseDragId,
+  type DropPosition,
+} from './boardListDnd';
 import './BoardList.css';
 
 // =============================================================================
@@ -76,8 +87,6 @@ interface BoardListProps {
   onToggleCollapse: () => void;
 }
 
-type DropPosition = 'before' | 'after' | 'inside';
-
 interface DragState {
   activeId: UniqueIdentifier | null;
   activeType: 'board' | 'folder' | null;
@@ -94,30 +103,6 @@ interface ImportBoardEntry extends BoardsExportEntry {
 // =============================================================================
 // Utility Functions
 // =============================================================================
-
-const parseDragId = (id: UniqueIdentifier): { type: 'board' | 'folder'; id: string } => {
-  const raw = String(id);
-  if (raw.startsWith('folder:')) {
-    return { type: 'folder', id: raw.slice('folder:'.length) };
-  }
-  return { type: 'board', id: raw };
-};
-
-const makeDragId = (type: 'board' | 'folder', id: string): string =>
-  type === 'folder' ? `folder:${id}` : id;
-
-const stripBoardType = (board: Board): Board => {
-  const maybeTyped = board as Board & { type?: string };
-  if (maybeTyped.type) {
-    const { type: _type, ...rest } = maybeTyped;
-    return rest;
-  }
-  return board;
-};
-
-const generateFolderId = () =>
-  globalThis.crypto?.randomUUID?.() ??
-  `folder-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 // =============================================================================
 // Draggable/Droppable Item Components
@@ -529,18 +514,9 @@ export function BoardList({
     [importBoards, importSelection],
   );
 
-  const getBoardById = useCallback(
-    (boardId: string) => flattenedBoards.find((entry) => entry.board.id === boardId)?.board,
-    [flattenedBoards],
-  );
+  const getBoardById = useCallback((boardId: string) => findBoardById(items, boardId), [items]);
 
-  const getFolderById = useCallback(
-    (folderId: string) =>
-      items.find((item) => item.type === 'folder' && item.id === folderId) as
-        | BoardFolder
-        | undefined,
-    [items],
-  );
+  const getFolderById = useCallback((folderId: string) => findFolderById(items, folderId), [items]);
 
   // ---------------------------------------------------------------------------
   // Effects
@@ -930,57 +906,6 @@ export function BoardList({
   }, []);
 
   // ---------------------------------------------------------------------------
-  // Helper Functions
-  // ---------------------------------------------------------------------------
-  function cleanupFolders(nextItems: BoardListItem[]): BoardListItem[] {
-    const seen = new Set<string>();
-    const normalized: BoardListItem[] = [];
-
-    for (const item of nextItems) {
-      if (item.type === 'board') {
-        if (seen.has(item.id)) continue;
-        seen.add(item.id);
-        normalized.push(item);
-        continue;
-      }
-
-      const remaining = item.items.filter((board) => !seen.has(board.id));
-      if (remaining.length === 0) continue;
-      if (remaining.length === 1) {
-        const board = { ...remaining[0], type: 'board' as const };
-        seen.add(board.id);
-        normalized.push(board);
-        continue;
-      }
-
-      remaining.forEach((board) => seen.add(board.id));
-      normalized.push({ ...item, items: remaining });
-    }
-
-    return normalized;
-  }
-
-  const removeBoardFromItems = (boardId: string, sourceItems: BoardListItem[]): BoardListItem[] => {
-    return sourceItems
-      .map((item) => {
-        if (item.type === 'board') {
-          return item.id === boardId ? null : item;
-        }
-        const remaining = item.items.filter((b) => b.id !== boardId);
-        if (remaining.length === 0) return null;
-        return { ...item, items: remaining };
-      })
-      .filter((item): item is BoardListItem => item !== null);
-  };
-
-  const removeFolderFromItems = (
-    folderId: string,
-    sourceItems: BoardListItem[],
-  ): BoardListItem[] => {
-    return sourceItems.filter((item) => !(item.type === 'folder' && item.id === folderId));
-  };
-
-  // ---------------------------------------------------------------------------
   // Drag and Drop Logic
   // ---------------------------------------------------------------------------
   const sensors = useSensors(
@@ -989,39 +914,9 @@ export function BoardList({
     }),
   );
 
-  const calculateDropPosition = (
-    pointerY: number,
-    targetRect: { top: number; height: number },
-    activeType: 'board' | 'folder',
-    overType: 'board' | 'folder',
-    isOverInFolder: boolean,
-  ): DropPosition => {
-    const relativeY = pointerY - targetRect.top;
-    const ratio = Math.max(0, Math.min(1, relativeY / targetRect.height));
-
-    // Folders being dragged cannot be dropped inside other folders
-    if (activeType === 'folder') {
-      return ratio < 0.5 ? 'before' : 'after';
-    }
-
-    // Boards can be dropped before, after, or inside (to create folder or add to existing)
-    if (overType === 'folder' || (!isOverInFolder && overType === 'board')) {
-      if (ratio < 0.3) {
-        return 'before';
-      } else if (ratio > 0.7) {
-        return 'after';
-      } else {
-        return 'inside';
-      }
-    }
-
-    // Inside folder - only before/after
-    return ratio < 0.5 ? 'before' : 'after';
-  };
-
   const handleDragStart = (event: DragStartEvent) => {
     const { active } = event;
-    const parsed = parseDragId(active.id);
+    const parsed = parseDragId(String(active.id));
 
     setDragState({
       activeId: active.id,
@@ -1071,8 +966,8 @@ export function BoardList({
       return;
     }
 
-    const activeParsed = parseDragId(active.id);
-    const overParsed = parseDragId(over.id);
+    const activeParsed = parseDragId(String(active.id));
+    const overParsed = parseDragId(String(over.id));
     const overData = over.data.current as
       | { type?: string; inFolder?: boolean; parentFolderId?: string }
       | undefined;
@@ -1109,8 +1004,8 @@ export function BoardList({
 
     if (!over || active.id === over.id) return;
 
-    const activeParsed = parseDragId(active.id);
-    const overParsed = parseDragId(over.id);
+    const activeParsed = parseDragId(String(active.id));
+    const overParsed = parseDragId(String(over.id));
     const overData = over.data.current as
       | { type?: string; inFolder?: boolean; parentFolderId?: string }
       | undefined;
@@ -1119,170 +1014,27 @@ export function BoardList({
 
     const dropPosition = currentDragState.dropPosition ?? 'after';
 
-    // Handle the different drag scenarios
+    let nextItems: BoardListItem[] | null = null;
     if (activeParsed.type === 'folder') {
-      handleFolderDrop(activeParsed.id, overParsed, isOverInFolder, parentFolderId, dropPosition);
-    } else {
-      handleBoardDrop(activeParsed.id, overParsed, isOverInFolder, dropPosition);
-    }
-  };
-
-  const handleFolderDrop = (
-    folderId: string,
-    over: { type: 'board' | 'folder'; id: string },
-    isOverInFolder: boolean,
-    parentFolderId: string | undefined,
-    dropPosition: DropPosition,
-  ) => {
-    // When over an item inside a folder, target the parent folder
-    const targetId = isOverInFolder && parentFolderId ? parentFolderId : over.id;
-    const targetIsFolder = isOverInFolder ? true : over.type === 'folder';
-
-    // Cannot drop folder into itself
-    if (targetIsFolder && targetId === folderId) return;
-
-    const folder = items.find((item) => item.type === 'folder' && item.id === folderId) as
-      | BoardFolder
-      | undefined;
-    if (!folder) return;
-
-    // Remove folder from current position
-    let newItems = removeFolderFromItems(folderId, items);
-
-    // Find target position
-    let targetIndex = newItems.findIndex((item) =>
-      targetIsFolder
-        ? item.type === 'folder' && item.id === targetId
-        : item.type === 'board' && item.id === targetId,
-    );
-
-    if (targetIndex === -1) targetIndex = newItems.length;
-
-    // Insert at new position
-    const insertIndex =
-      dropPosition === 'after' || dropPosition === 'inside' ? targetIndex + 1 : targetIndex;
-    newItems = [...newItems.slice(0, insertIndex), folder, ...newItems.slice(insertIndex)];
-
-    onUpdateItems(cleanupFolders(newItems));
-  };
-
-  const handleBoardDrop = (
-    boardId: string,
-    over: { type: 'board' | 'folder'; id: string },
-    isOverInFolder: boolean,
-    dropPosition: DropPosition,
-  ) => {
-    const sourceBoard = getBoardById(boardId);
-    if (!sourceBoard) return;
-
-    // Case 1: Dropping board INSIDE a folder
-    if (over.type === 'folder' && dropPosition === 'inside') {
-      const targetFolder = getFolderById(over.id);
-      if (!targetFolder) return;
-
-      let newItems = removeBoardFromItems(boardId, items);
-      newItems = newItems.map((item) => {
-        if (item.type === 'folder' && item.id === over.id) {
-          return { ...item, items: [...item.items, stripBoardType(sourceBoard)] };
-        }
-        return item;
+      nextItems = applyFolderDrop({
+        folderId: activeParsed.id,
+        over: overParsed,
+        isOverInFolder,
+        parentFolderId,
+        dropPosition,
+        items,
       });
-
-      onUpdateItems(cleanupFolders(newItems));
-      return;
+    } else {
+      nextItems = applyBoardDrop({
+        boardId: activeParsed.id,
+        over: overParsed,
+        isOverInFolder,
+        dropPosition,
+        items,
+      });
     }
-
-    // Case 2: Dropping board ON another board (outside folder) to CREATE a folder
-    if (over.type === 'board' && dropPosition === 'inside' && !isOverInFolder) {
-      const targetBoard = getBoardById(over.id);
-      if (!targetBoard || targetBoard.id === boardId) return;
-
-      // Find target board position
-      const targetIndex = items.findIndex((item) => item.type === 'board' && item.id === over.id);
-      if (targetIndex === -1) return;
-
-      // Remove both boards
-      let newItems = removeBoardFromItems(boardId, items);
-      newItems = removeBoardFromItems(over.id, newItems);
-
-      // Create new folder
-      const newFolder: BoardFolder = {
-        type: 'folder',
-        id: generateFolderId(),
-        name: targetBoard.name,
-        items: [stripBoardType(targetBoard), stripBoardType(sourceBoard)],
-      };
-
-      // Insert folder at target position
-      const insertIndex = Math.min(targetIndex, newItems.length);
-      newItems = [...newItems.slice(0, insertIndex), newFolder, ...newItems.slice(insertIndex)];
-
-      onUpdateItems(cleanupFolders(newItems));
-      return;
-    }
-
-    // Case 3: Dropping board BEFORE/AFTER a folder (at root level)
-    if (over.type === 'folder' && (dropPosition === 'before' || dropPosition === 'after')) {
-      let newItems = removeBoardFromItems(boardId, items);
-      const targetIndex = newItems.findIndex(
-        (item) => item.type === 'folder' && item.id === over.id,
-      );
-      if (targetIndex === -1) return;
-
-      const insertIndex = dropPosition === 'after' ? targetIndex + 1 : targetIndex;
-      const boardItem = { ...sourceBoard, type: 'board' as const };
-      newItems = [...newItems.slice(0, insertIndex), boardItem, ...newItems.slice(insertIndex)];
-
-      onUpdateItems(cleanupFolders(newItems));
-      return;
-    }
-
-    // Case 4: Dropping board BEFORE/AFTER another board
-    if (over.type === 'board') {
-      let newItems = removeBoardFromItems(boardId, items);
-
-      // Find target board in the new items
-      let targetRootIndex = -1;
-      let targetFolderIndex: number | undefined;
-
-      for (let i = 0; i < newItems.length; i++) {
-        const item = newItems[i];
-        if (item.type === 'board' && item.id === over.id) {
-          targetRootIndex = i;
-          break;
-        }
-        if (item.type === 'folder') {
-          const idx = item.items.findIndex((b) => b.id === over.id);
-          if (idx !== -1) {
-            targetRootIndex = i;
-            targetFolderIndex = idx;
-            break;
-          }
-        }
-      }
-
-      if (targetRootIndex === -1) return;
-
-      if (targetFolderIndex !== undefined) {
-        // Target is inside a folder
-        const folder = newItems[targetRootIndex] as BoardFolder;
-        const insertIdx = dropPosition === 'after' ? targetFolderIndex + 1 : targetFolderIndex;
-        const newFolderItems = [
-          ...folder.items.slice(0, insertIdx),
-          stripBoardType(sourceBoard),
-          ...folder.items.slice(insertIdx),
-        ];
-        newItems = newItems.map((item, idx) =>
-          idx === targetRootIndex ? { ...item, items: newFolderItems } : item,
-        ) as BoardListItem[];
-      } else {
-        // Target is at root level
-        const insertIdx = dropPosition === 'after' ? targetRootIndex + 1 : targetRootIndex;
-        const boardItem = { ...sourceBoard, type: 'board' as const };
-        newItems = [...newItems.slice(0, insertIdx), boardItem, ...newItems.slice(insertIdx)];
-      }
-
-      onUpdateItems(cleanupFolders(newItems));
+    if (nextItems) {
+      onUpdateItems(nextItems);
     }
   };
 
@@ -1329,7 +1081,7 @@ export function BoardList({
   // ---------------------------------------------------------------------------
   const activeItem = useMemo(() => {
     if (!dragState.activeId) return null;
-    const parsed = parseDragId(dragState.activeId);
+    const parsed = parseDragId(String(dragState.activeId));
     if (parsed.type === 'folder') {
       return getFolderById(parsed.id);
     }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
 import { BoardList } from './components/BoardList';
@@ -6,6 +6,23 @@ import { ExcalidrawFrame, ExcalidrawFrameHandle } from './components/ExcalidrawF
 import { useBoards } from './hooks/useBoards';
 import type { BoardsImportResult, ExcalidrawData } from './types/board';
 import './App.css';
+
+const findBoardNameById = (
+  items: ReturnType<typeof useBoards>['items'],
+  boardId: string | null,
+) => {
+  if (!boardId) return null;
+  for (const item of items) {
+    if (item.type === 'board' && item.id === boardId) return item.name;
+    if (item.type === 'folder') {
+      const board = item.items.find((entry) => entry.id === boardId);
+      if (board) return board.name;
+    }
+  }
+  return null;
+};
+
+type FrameExportAction = 'exportPng' | 'copyPng' | 'exportSvg';
 
 function App() {
   const {
@@ -42,16 +59,10 @@ function App() {
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const excalidrawRef = useRef<ExcalidrawFrameHandle | null>(null);
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
-  const activeBoardName = (() => {
-    for (const item of items) {
-      if (item.type === 'board' && item.id === activeBoardId) return item.name;
-      if (item.type === 'folder') {
-        const board = item.items.find((entry) => entry.id === activeBoardId);
-        if (board) return board.name;
-      }
-    }
-    return null;
-  })();
+  const activeBoardName = useMemo(
+    () => findBoardNameById(items, activeBoardId),
+    [items, activeBoardId],
+  );
 
   useEffect(() => {
     try {
@@ -145,26 +156,27 @@ function App() {
     [exportBusy],
   );
 
+  const handleFrameExport = useCallback(
+    async (action: FrameExportAction) => {
+      await runExport(async () => {
+        if (!excalidrawRef.current) throw new Error('Excalidraw not ready');
+        await excalidrawRef.current[action]();
+      });
+    },
+    [runExport],
+  );
+
   const handleExportPng = useCallback(async () => {
-    await runExport(async () => {
-      if (!excalidrawRef.current) throw new Error('Excalidraw not ready');
-      await excalidrawRef.current.exportPng();
-    });
-  }, [runExport]);
+    await handleFrameExport('exportPng');
+  }, [handleFrameExport]);
 
   const handleCopyPng = useCallback(async () => {
-    await runExport(async () => {
-      if (!excalidrawRef.current) throw new Error('Excalidraw not ready');
-      await excalidrawRef.current.copyPng();
-    });
-  }, [runExport]);
+    await handleFrameExport('copyPng');
+  }, [handleFrameExport]);
 
   const handleExportSvg = useCallback(async () => {
-    await runExport(async () => {
-      if (!excalidrawRef.current) throw new Error('Excalidraw not ready');
-      await excalidrawRef.current.exportSvg();
-    });
-  }, [runExport]);
+    await handleFrameExport('exportSvg');
+  }, [handleFrameExport]);
 
   const handleExportBoards = useCallback(async () => {
     if (boardsExportBusy) return;

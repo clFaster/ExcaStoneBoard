@@ -26,37 +26,37 @@ export function useBoards() {
     loadBoards();
   }, [loadBoards]);
 
+  const runAndReload = useCallback(
+    async <T>(action: () => Promise<T>, fallback: T): Promise<T> => {
+      try {
+        const result = await action();
+        await loadBoards();
+        setError(null);
+        return result;
+      } catch (e) {
+        setError(String(e));
+        return fallback;
+      }
+    },
+    [loadBoards],
+  );
+
   const createBoard = async (name: string): Promise<Board | null> => {
-    try {
-      const board = await invoke<Board>('create_board', { name });
-      await loadBoards();
-      return board;
-    } catch (e) {
-      setError(String(e));
-      return null;
-    }
+    return runAndReload(() => invoke<Board>('create_board', { name }), null);
   };
 
   const renameBoard = async (boardId: string, newName: string): Promise<boolean> => {
-    try {
+    return runAndReload(async () => {
       await invoke<Board>('rename_board', { boardId, newName });
-      await loadBoards();
       return true;
-    } catch (e) {
-      setError(String(e));
-      return false;
-    }
+    }, false);
   };
 
   const deleteBoard = async (boardId: string): Promise<boolean> => {
-    try {
+    return runAndReload(async () => {
       await invoke('delete_board', { boardId });
-      await loadBoards();
       return true;
-    } catch (e) {
-      setError(String(e));
-      return false;
-    }
+    }, false);
   };
 
   const setActiveBoard = async (boardId: string): Promise<boolean> => {
@@ -71,14 +71,7 @@ export function useBoards() {
   };
 
   const duplicateBoard = async (boardId: string, newName: string): Promise<Board | null> => {
-    try {
-      const board = await invoke<Board>('duplicate_board', { boardId, newName });
-      await loadBoards();
-      return board;
-    } catch (e) {
-      setError(String(e));
-      return null;
-    }
+    return runAndReload(() => invoke<Board>('duplicate_board', { boardId, newName }), null);
   };
 
   const saveBoardData = useCallback(
