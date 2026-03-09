@@ -22,6 +22,7 @@ function App() {
     saveBoardData,
     loadBoardData,
     loadBoards,
+    saveBoardThumbnail,
   } = useBoards();
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -40,6 +41,7 @@ function App() {
   const [boardsImportBusy, setBoardsImportBusy] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const excalidrawRef = useRef<ExcalidrawFrameHandle | null>(null);
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const activeBoardName = (() => {
     for (const item of items) {
       if (item.type === 'board' && item.id === activeBoardId) return item.name;
@@ -58,6 +60,32 @@ function App() {
       // ignore storage errors
     }
   }, [sidebarCollapsed]);
+
+  // Initialize thumbnails from loaded board items
+  useEffect(() => {
+    const loaded: Record<string, string> = {};
+    for (const item of items) {
+      if (item.type === 'board' && item.thumbnail) {
+        loaded[item.id] = item.thumbnail;
+      } else if (item.type === 'folder') {
+        for (const board of item.items) {
+          if (board.thumbnail) loaded[board.id] = board.thumbnail;
+        }
+      }
+    }
+    // Merge: keep any freshly-generated thumbnails, add loaded ones as fallback
+    setThumbnails((prev) => ({ ...loaded, ...prev }));
+  }, [items]);
+
+  // Handle thumbnail generation from ExcalidrawFrame
+  const handleThumbnailGenerated = useCallback(
+    (boardId: string, dataUrl: string) => {
+      setThumbnails((prev) => ({ ...prev, [boardId]: dataUrl }));
+      // Fire-and-forget persist to backend
+      void saveBoardThumbnail(boardId, dataUrl);
+    },
+    [saveBoardThumbnail],
+  );
 
   // Load board data when active board changes
   useEffect(() => {
@@ -219,6 +247,7 @@ function App() {
       <BoardList
         items={items}
         activeBoardId={activeBoardId}
+        thumbnails={thumbnails}
         onSelectBoard={handleSelectBoard}
         onCreateBoard={createBoard}
         onRenameBoard={renameBoard}
@@ -249,6 +278,7 @@ function App() {
           boardId={activeBoardId}
           boardName={activeBoardName}
           onDataChange={handleDataChange}
+          onThumbnailGenerated={handleThumbnailGenerated}
           initialData={currentBoardData}
           ref={excalidrawRef}
         />

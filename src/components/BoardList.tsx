@@ -57,6 +57,7 @@ import './BoardList.css';
 interface BoardListProps {
   items: BoardListItem[];
   activeBoardId: string | null;
+  thumbnails: Record<string, string>;
   onSelectBoard: (boardId: string) => void;
   onCreateBoard: (name: string) => void;
   onRenameBoard: (boardId: string, newName: string) => void;
@@ -76,6 +77,7 @@ interface BoardListProps {
 }
 
 type DropPosition = 'before' | 'after' | 'inside';
+type DropTarget = { type: 'board' | 'folder'; id: string };
 
 interface DragState {
   activeId: UniqueIdentifier | null;
@@ -139,6 +141,8 @@ interface DraggableBoardItemProps {
   parentFolderId?: string;
   dropPosition?: DropPosition | null;
   isDragSource?: boolean;
+  onMouseEnter?: (e: React.MouseEvent<HTMLDivElement>) => void;
+  onMouseLeave?: (e: React.MouseEvent<HTMLDivElement>) => void;
 }
 
 function DraggableBoardItem({
@@ -158,6 +162,8 @@ function DraggableBoardItem({
   parentFolderId,
   dropPosition,
   isDragSource,
+  onMouseEnter,
+  onMouseLeave,
 }: DraggableBoardItemProps) {
   const {
     attributes,
@@ -188,6 +194,8 @@ function DraggableBoardItem({
       ref={setNodeRef}
       className={`board-item ${isActive ? 'active' : ''} ${dragClass} ${dropClass}`}
       onClick={() => !isEditing && onSelect()}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       {...attributes}
       {...listeners}
     >
@@ -409,6 +417,7 @@ function FolderOverlay({ folder }: FolderOverlayProps) {
 export function BoardList({
   items,
   activeBoardId,
+  thumbnails,
   onSelectBoard,
   onCreateBoard,
   onRenameBoard,
@@ -864,6 +873,62 @@ export function BoardList({
   };
 
   const dragDisabled = Boolean(activeMenu || editingId || editingFolderId);
+
+  // ---------------------------------------------------------------------------
+  // Thumbnail Hover Handlers
+  // ---------------------------------------------------------------------------
+  const hoverTimerRef = useRef<number | null>(null);
+  const [thumbnailPreview, setThumbnailPreview] = useState<{
+    boardId: string;
+    anchorRect: DOMRect;
+  } | null>(null);
+
+  const handleBoardMouseEnter = useCallback(
+    (boardId: string, event: React.MouseEvent<HTMLDivElement>) => {
+      // Don't show preview if dragging/editing
+      if (dragDisabled) return;
+      if (!thumbnails[boardId]) return;
+
+      const rect = event.currentTarget.getBoundingClientRect();
+      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+
+      hoverTimerRef.current = window.setTimeout(() => {
+        setThumbnailPreview({ boardId, anchorRect: rect });
+      }, 400);
+    },
+    [dragDisabled, thumbnails],
+  );
+
+  const handleBoardMouseLeave = useCallback(() => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    setThumbnailPreview(null);
+  }, []);
+
+  // Hide thumbnail preview when scrolling, dragging, or opening menus
+  useEffect(() => {
+    setThumbnailPreview(null);
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+  }, [activeMenu, dragState.activeId]);
+
+  useEffect(() => {
+    const scrollNode = boardsScrollRef.current;
+    if (!scrollNode) return;
+    const hide = () => {
+      setThumbnailPreview(null);
+      if (hoverTimerRef.current) {
+        clearTimeout(hoverTimerRef.current);
+        hoverTimerRef.current = null;
+      }
+    };
+    scrollNode.addEventListener('scroll', hide, { passive: true });
+    return () => scrollNode.removeEventListener('scroll', hide);
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Helper Functions
@@ -1426,6 +1491,8 @@ export function BoardList({
                           parentFolderId={item.id}
                           dropPosition={boardDropPosition}
                           isDragSource={isBoardDragSource}
+                          onMouseEnter={(e) => handleBoardMouseEnter(board.id, e)}
+                          onMouseLeave={handleBoardMouseLeave}
                         />
                       );
                     })}
@@ -1454,6 +1521,8 @@ export function BoardList({
                   disabled={dragDisabled || editingId === item.id}
                   dropPosition={boardDropPosition}
                   isDragSource={isBoardDragSource}
+                  onMouseEnter={(e) => handleBoardMouseEnter(item.id, e)}
+                  onMouseLeave={handleBoardMouseLeave}
                 />
               );
             })
@@ -1664,6 +1733,28 @@ export function BoardList({
           )
         ) : null}
       </DragOverlay>
+
+      {/* Thumbnail hover preview portal */}
+      {thumbnailPreview && thumbnails[thumbnailPreview.boardId]
+        ? createPortal(
+            <div
+              className="thumbnail-preview"
+              style={{
+                position: 'fixed',
+                top: thumbnailPreview.anchorRect.top + thumbnailPreview.anchorRect.height / 2,
+                left: thumbnailPreview.anchorRect.right + 12,
+                transform: 'translateY(-50%)',
+              }}
+            >
+              <img
+                src={thumbnails[thumbnailPreview.boardId]}
+                alt="Board preview"
+                className="thumbnail-preview-img"
+              />
+            </div>,
+            document.body,
+          )
+        : null}
 
       {/* Context menu portal */}
       {activeMenu && menuContent

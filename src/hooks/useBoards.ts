@@ -112,6 +112,19 @@ export function useBoards() {
     }
   }, []);
 
+  const saveBoardThumbnail = useCallback(
+    async (boardId: string, thumbnail: string | null): Promise<boolean> => {
+      try {
+        await invoke('save_board_thumbnail', { boardId, thumbnail });
+        return true;
+      } catch (e) {
+        console.error('Failed to save board thumbnail:', e);
+        return false;
+      }
+    },
+    [],
+  );
+
   return {
     items,
     activeBoardId,
@@ -136,5 +149,6 @@ export function useBoards() {
     },
     saveBoardData,
     loadBoardData,
+    saveBoardThumbnail,
   };
 }

@@ -27,6 +27,7 @@ interface ExcalidrawFrameProps {
   boardId: string | null;
   boardName: string | null;
   onDataChange: (boardId: string, data: ExcalidrawData) => Promise<void>;
+  onThumbnailGenerated: (boardId: string, dataUrl: string) => void;
   initialData: ExcalidrawData | null;
 }
 
@@ -39,11 +40,12 @@ export interface ExcalidrawFrameHandle {
 
 export const ExcalidrawFrame = forwardRef<ExcalidrawFrameHandle, ExcalidrawFrameProps>(
   function ExcalidrawFrame(
-    { boardId, boardName, onDataChange, initialData }: ExcalidrawFrameProps,
+    { boardId, boardName, onDataChange, onThumbnailGenerated, initialData }: ExcalidrawFrameProps,
     ref,
   ) {
     const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
     const saveTimeoutRef = useRef<number | null>(null);
+    const thumbnailTimeoutRef = useRef<number | null>(null);
     const [isReady, setIsReady] = useState(false);
     const lastSavedDataRef = useRef<string | null>(null);
 
@@ -228,11 +230,97 @@ export const ExcalidrawFrame = forwardRef<ExcalidrawFrameHandle, ExcalidrawFrame
       await saveData(data);
     }, [boardId, collectData, saveData]);
 
+    // -------------------------------------------------------------------------
+    // Thumbnail generation
+    // -------------------------------------------------------------------------
+    const generateThumbnail = useCallback(async () => {
+      if (!excalidrawApiRef.current || !boardId) return;
+
+      const elements = excalidrawApiRef.current.getSceneElements();
+      if (elements.length === 0) return;
+
+      const appState = excalidrawApiRef.current.getAppState();
+      const files = excalidrawApiRef.current.getFiles();
+
+      try {
+        const blob = await exportToBlob({
+          elements: elements as ExcalidrawElement[],
+          appState: {
+            ...appState,
+            exportBackground: false,
+            exportEmbedScene: false,
+            exportWithDarkMode: true,
+          },
+          files,
+          mimeType: MIME_TYPES.png,
+        });
+
+        // Resize to a small thumbnail using canvas
+        const dataUrl = await new Promise<string | null>((resolve) => {
+          const img = new Image();
+          const url = URL.createObjectURL(blob);
+
+          img.onload = () => {
+            const maxDim = 320;
+            const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+            const w = Math.round(img.width * scale);
+            const h = Math.round(img.height * scale);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              URL.revokeObjectURL(url);
+              resolve(null);
+              return;
+            }
+            ctx.drawImage(img, 0, 0, w, h);
+            URL.revokeObjectURL(url);
+            resolve(canvas.toDataURL('image/png'));
+          };
+
+          img.onerror = () => {
+            URL.revokeObjectURL(url);
+            resolve(null);
+          };
+
+          img.src = url;
+        });
+
+        if (dataUrl && boardId) {
+          onThumbnailGenerated(boardId, dataUrl);
+        }
+      } catch (e) {
+        console.error('Failed to generate thumbnail:', e);
+      }
+    }, [boardId, onThumbnailGenerated]);
+
+    const scheduleThumbnail = useCallback(() => {
+      if (thumbnailTimeoutRef.current) {
+        clearTimeout(thumbnailTimeoutRef.current);
+      }
+      thumbnailTimeoutRef.current = window.setTimeout(() => {
+        void generateThumbnail();
+      }, 5000); // Generate thumbnail 5 seconds after last change
+    }, [generateThumbnail]);
+
+    const flushThumbnail = useCallback(async () => {
+      if (thumbnailTimeoutRef.current) {
+        clearTimeout(thumbnailTimeoutRef.current);
+        thumbnailTimeoutRef.current = null;
+      }
+      await generateThumbnail();
+    }, [generateThumbnail]);
+
     useImperativeHandle(ref, () => ({
       exportPng,
       copyPng,
       exportSvg,
-      flushSave,
+      flushSave: async () => {
+        await flushSave();
+        await flushThumbnail();
+      },
     }));
 
     // Handle Excalidraw changes
@@ -240,8 +328,9 @@ export const ExcalidrawFrame = forwardRef<ExcalidrawFrameHandle, ExcalidrawFrame
       (_elements: readonly ExcalidrawElement[], _appState: AppState, _files: BinaryFiles) => {
         if (!boardId || !isReady) return;
         scheduleSave();
+        scheduleThumbnail();
       },
-      [boardId, isReady, scheduleSave],
+      [boardId, isReady, scheduleSave, scheduleThumbnail],
     );
 
     // Cleanup on unmount
@@ -249,6 +338,9 @@ export const ExcalidrawFrame = forwardRef<ExcalidrawFrameHandle, ExcalidrawFrame
       return () => {
         if (saveTimeoutRef.current) {
           clearTimeout(saveTimeoutRef.current);
+        }
+        if (thumbnailTimeoutRef.current) {
+          clearTimeout(thumbnailTimeoutRef.current);
         }
       };
     }, []);
