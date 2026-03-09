@@ -22,6 +22,21 @@ const findBoardNameById = (
   return null;
 };
 
+const collectThumbnailsFromItems = (items: ReturnType<typeof useBoards>['items']) => {
+  const loaded: Record<string, string> = {};
+  for (const item of items) {
+    if (item.type === 'board') {
+      if (item.thumbnail) loaded[item.id] = item.thumbnail;
+      continue;
+    }
+
+    for (const board of item.items) {
+      if (board.thumbnail) loaded[board.id] = board.thumbnail;
+    }
+  }
+  return loaded;
+};
+
 type FrameExportAction = 'exportPng' | 'copyPng' | 'exportSvg';
 
 function App() {
@@ -74,16 +89,7 @@ function App() {
 
   // Initialize thumbnails from loaded board items
   useEffect(() => {
-    const loaded: Record<string, string> = {};
-    for (const item of items) {
-      if (item.type === 'board' && item.thumbnail) {
-        loaded[item.id] = item.thumbnail;
-      } else if (item.type === 'folder') {
-        for (const board of item.items) {
-          if (board.thumbnail) loaded[board.id] = board.thumbnail;
-        }
-      }
-    }
+    const loaded = collectThumbnailsFromItems(items);
     // Merge: keep any freshly-generated thumbnails, add loaded ones as fallback
     setThumbnails((prev) => ({ ...loaded, ...prev }));
   }, [items]);
@@ -100,33 +106,35 @@ function App() {
 
   // Load board data when active board changes
   useEffect(() => {
-    let isActive = true;
+    let cancelled = false;
+    const setIfActive = (update: () => void) => {
+      if (!cancelled) update();
+    };
+
+    if (!activeBoardId) {
+      setCurrentBoardData(null);
+      setBoardDataLoading(false);
+      return;
+    }
+
+    setBoardDataLoading(true);
 
     const loadData = async () => {
-      if (activeBoardId) {
-        setBoardDataLoading(true);
-        try {
-          const data = await loadBoardData(activeBoardId);
-          if (!isActive) return;
-          setCurrentBoardData(data);
-        } catch (e) {
-          if (!isActive) return;
-          console.error('Failed to load board data:', e);
-          setCurrentBoardData(null);
-        } finally {
-          if (isActive) {
-            setBoardDataLoading(false);
-          }
-        }
-      } else {
-        setCurrentBoardData(null);
-        setBoardDataLoading(false);
+      try {
+        const data = await loadBoardData(activeBoardId);
+        setIfActive(() => setCurrentBoardData(data));
+      } catch (e) {
+        console.error('Failed to load board data:', e);
+        setIfActive(() => setCurrentBoardData(null));
+      } finally {
+        setIfActive(() => setBoardDataLoading(false));
       }
     };
-    loadData();
+
+    void loadData();
 
     return () => {
-      isActive = false;
+      cancelled = true;
     };
   }, [activeBoardId, loadBoardData]);
 
