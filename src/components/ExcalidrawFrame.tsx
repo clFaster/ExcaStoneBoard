@@ -418,3 +418,5 @@ export const ExcalidrawFrame = forwardRef<ExcalidrawFrameHandle, ExcalidrawFrame
     );
   },
 );
+
+export default ExcalidrawFrame;

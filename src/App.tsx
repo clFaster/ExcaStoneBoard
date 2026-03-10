@@ -1,7 +1,9 @@
+import { lazy, Suspense } from 'react';
 import { BoardList } from './components/BoardList';
-import { ExcalidrawFrame } from './components/ExcalidrawFrame';
 import { useAppController } from './hooks/useAppController';
 import './App.css';
+
+const ExcalidrawFrame = lazy(() => import('./components/ExcalidrawFrame'));
 
 function App() {
   const {
@@ -76,15 +78,26 @@ function App() {
           </div>
         </div>
       ) : (
-        <ExcalidrawFrame
-          key={activeBoardId || 'no-board'}
-          boardId={activeBoardId}
-          boardName={activeBoardName}
-          onDataChange={handleDataChange}
-          onThumbnailGenerated={handleThumbnailGenerated}
-          initialData={currentBoardData}
-          ref={excalidrawRef}
-        />
+        <Suspense
+          fallback={
+            <div className="excalidraw-frame">
+              <div className="loading-overlay">
+                <div className="spinner"></div>
+                <p>Loading editor...</p>
+              </div>
+            </div>
+          }
+        >
+          <ExcalidrawFrame
+            key={activeBoardId || 'no-board'}
+            boardId={activeBoardId}
+            boardName={activeBoardName}
+            onDataChange={handleDataChange}
+            onThumbnailGenerated={handleThumbnailGenerated}
+            initialData={currentBoardData}
+            ref={excalidrawRef}
+          />
+        </Suspense>
       )}
       {(error || exportError || settingsError) && (
         <div className="error-toast">
