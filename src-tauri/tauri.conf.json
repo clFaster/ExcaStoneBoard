@@ -39,5 +39,5 @@
     "longDescription": "A wrapper application for Excalidraw that allows managing multiple drawing boards without losing access to old ones. Supports collaboration via sharing mode.",
     "category": "Productivity"
   },
-  "plugins": { }
+  "plugins": {}
 }

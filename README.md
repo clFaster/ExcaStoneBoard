@@ -20,6 +20,7 @@ An unofficial multi-board manager for Excalidraw - manage multiple drawing board
 Before building, ensure you have the following installed:
 
 ### Windows
+
 1. **Rust**: Install from [rustup.rs](https://rustup.rs/)
 2. **Node.js**: Version 24+ from [nodejs.org](https://nodejs.org/)
 3. **Visual Studio Build Tools**: Install "Desktop development with C++" workload from [Visual Studio Installer](https://visualstudio.microsoft.com/visual-cpp-build-tools/)

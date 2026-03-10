@@ -1,11 +1,10 @@
 use chrono::{DateTime, TimeZone, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
-use crate::migrations::legacy_json::migrate_legacy_json_if_needed;
 use crate::models::{Board, BoardFolder, BoardListItem, BoardsIndex};
 
 pub(crate) fn get_boards_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -13,16 +12,6 @@ pub(crate) fn get_boards_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let boards_dir = app_data.join("boards");
     fs::create_dir_all(&boards_dir).map_err(|e| e.to_string())?;
     Ok(boards_dir)
-}
-
-pub(crate) fn get_index_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let boards_dir = get_boards_dir(app)?;
-    Ok(boards_dir.join("index.json"))
-}
-
-fn get_board_data_path(app: &AppHandle, board_id: &str) -> Result<PathBuf, String> {
-    let boards_dir = get_boards_dir(app)?;
-    Ok(boards_dir.join(format!("{}.json", board_id)))
 }
 
 pub(crate) fn default_board_data() -> String {
@@ -40,11 +29,10 @@ fn get_db_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 pub(crate) fn open_db(app: &AppHandle) -> Result<Connection, String> {
     let db_path = get_db_path(app)?;
-    let mut conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
     conn.execute_batch("PRAGMA foreign_keys = ON;")
         .map_err(|e| e.to_string())?;
     init_db(&conn)?;
-    migrate_legacy_json_if_needed(app, &mut conn)?;
     Ok(conn)
 }
 
@@ -277,47 +265,6 @@ pub(crate) fn normalize_active_board_id(
     }
 
     Ok(index)
-}
-
-pub(crate) fn insert_board_if_needed(
-    conn: &Connection,
-    app: &AppHandle,
-    inserted: &mut HashSet<String>,
-    board: &Board,
-) -> Result<(), String> {
-    if inserted.contains(&board.id) {
-        return Ok(());
-    }
-
-    conn.execute(
-        "INSERT OR IGNORE INTO boards (id, name, created_at, updated_at, collaboration_link, thumbnail)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            board.id,
-            board.name,
-            board.created_at.timestamp_millis(),
-            board.updated_at.timestamp_millis(),
-            board.collaboration_link,
-            board.thumbnail
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-
-    let board_path = get_board_data_path(app, &board.id)?;
-    let data = if board_path.exists() {
-        fs::read_to_string(&board_path).map_err(|e| e.to_string())?
-    } else {
-        default_board_data()
-    };
-
-    conn.execute(
-        "INSERT OR REPLACE INTO board_data (board_id, data) VALUES (?1, ?2)",
-        params![board.id, data],
-    )
-    .map_err(|e| e.to_string())?;
-
-    inserted.insert(board.id.clone());
-    Ok(())
 }
 
 pub(crate) fn get_board_by_id(conn: &Connection, board_id: &str) -> Result<Board, String> {

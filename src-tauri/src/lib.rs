@@ -1,6 +1,5 @@
 mod commands;
 mod db;
-mod migrations;
 mod models;
 
 use crate::commands::boards::{
