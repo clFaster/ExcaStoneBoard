@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
 import { BoardList } from './components/BoardList';
@@ -6,6 +6,38 @@ import { ExcalidrawFrame, ExcalidrawFrameHandle } from './components/ExcalidrawF
 import { useBoards } from './hooks/useBoards';
 import type { BoardsImportResult, ExcalidrawData } from './types/board';
 import './App.css';
+
+const findBoardNameById = (
+  items: ReturnType<typeof useBoards>['items'],
+  boardId: string | null,
+) => {
+  if (!boardId) return null;
+  for (const item of items) {
+    if (item.type === 'board' && item.id === boardId) return item.name;
+    if (item.type === 'folder') {
+      const board = item.items.find((entry) => entry.id === boardId);
+      if (board) return board.name;
+    }
+  }
+  return null;
+};
+
+const collectThumbnailsFromItems = (items: ReturnType<typeof useBoards>['items']) => {
+  const loaded: Record<string, string> = {};
+  for (const item of items) {
+    if (item.type === 'board') {
+      if (item.thumbnail) loaded[item.id] = item.thumbnail;
+      continue;
+    }
+
+    for (const board of item.items) {
+      if (board.thumbnail) loaded[board.id] = board.thumbnail;
+    }
+  }
+  return loaded;
+};
+
+type FrameExportAction = 'exportPng' | 'copyPng' | 'exportSvg';
 
 function App() {
   const {
@@ -22,6 +54,7 @@ function App() {
     saveBoardData,
     loadBoardData,
     loadBoards,
+    saveBoardThumbnail,
   } = useBoards();
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -40,16 +73,11 @@ function App() {
   const [boardsImportBusy, setBoardsImportBusy] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const excalidrawRef = useRef<ExcalidrawFrameHandle | null>(null);
-  const activeBoardName = (() => {
-    for (const item of items) {
-      if (item.type === 'board' && item.id === activeBoardId) return item.name;
-      if (item.type === 'folder') {
-        const board = item.items.find((entry) => entry.id === activeBoardId);
-        if (board) return board.name;
-      }
-    }
-    return null;
-  })();
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
+  const activeBoardName = useMemo(
+    () => findBoardNameById(items, activeBoardId),
+    [items, activeBoardId],
+  );
 
   useEffect(() => {
     try {
@@ -59,35 +87,54 @@ function App() {
     }
   }, [sidebarCollapsed]);
 
+  // Initialize thumbnails from loaded board items
+  useEffect(() => {
+    const loaded = collectThumbnailsFromItems(items);
+    // Merge: keep any freshly-generated thumbnails, add loaded ones as fallback
+    setThumbnails((prev) => ({ ...loaded, ...prev }));
+  }, [items]);
+
+  // Handle thumbnail generation from ExcalidrawFrame
+  const handleThumbnailGenerated = useCallback(
+    (boardId: string, dataUrl: string) => {
+      setThumbnails((prev) => ({ ...prev, [boardId]: dataUrl }));
+      // Fire-and-forget persist to backend
+      void saveBoardThumbnail(boardId, dataUrl);
+    },
+    [saveBoardThumbnail],
+  );
+
   // Load board data when active board changes
   useEffect(() => {
-    let isActive = true;
+    let cancelled = false;
+    const setIfActive = (update: () => void) => {
+      if (!cancelled) update();
+    };
+
+    if (!activeBoardId) {
+      setCurrentBoardData(null);
+      setBoardDataLoading(false);
+      return;
+    }
+
+    setBoardDataLoading(true);
 
     const loadData = async () => {
-      if (activeBoardId) {
-        setBoardDataLoading(true);
-        try {
-          const data = await loadBoardData(activeBoardId);
-          if (!isActive) return;
-          setCurrentBoardData(data);
-        } catch (e) {
-          if (!isActive) return;
-          console.error('Failed to load board data:', e);
-          setCurrentBoardData(null);
-        } finally {
-          if (isActive) {
-            setBoardDataLoading(false);
-          }
-        }
-      } else {
-        setCurrentBoardData(null);
-        setBoardDataLoading(false);
+      try {
+        const data = await loadBoardData(activeBoardId);
+        setIfActive(() => setCurrentBoardData(data));
+      } catch (e) {
+        console.error('Failed to load board data:', e);
+        setIfActive(() => setCurrentBoardData(null));
+      } finally {
+        setIfActive(() => setBoardDataLoading(false));
       }
     };
-    loadData();
+
+    void loadData();
 
     return () => {
-      isActive = false;
+      cancelled = true;
     };
   }, [activeBoardId, loadBoardData]);
 
@@ -117,26 +164,27 @@ function App() {
     [exportBusy],
   );
 
+  const handleFrameExport = useCallback(
+    async (action: FrameExportAction) => {
+      await runExport(async () => {
+        if (!excalidrawRef.current) throw new Error('Excalidraw not ready');
+        await excalidrawRef.current[action]();
+      });
+    },
+    [runExport],
+  );
+
   const handleExportPng = useCallback(async () => {
-    await runExport(async () => {
-      if (!excalidrawRef.current) throw new Error('Excalidraw not ready');
-      await excalidrawRef.current.exportPng();
-    });
-  }, [runExport]);
+    await handleFrameExport('exportPng');
+  }, [handleFrameExport]);
 
   const handleCopyPng = useCallback(async () => {
-    await runExport(async () => {
-      if (!excalidrawRef.current) throw new Error('Excalidraw not ready');
-      await excalidrawRef.current.copyPng();
-    });
-  }, [runExport]);
+    await handleFrameExport('copyPng');
+  }, [handleFrameExport]);
 
   const handleExportSvg = useCallback(async () => {
-    await runExport(async () => {
-      if (!excalidrawRef.current) throw new Error('Excalidraw not ready');
-      await excalidrawRef.current.exportSvg();
-    });
-  }, [runExport]);
+    await handleFrameExport('exportSvg');
+  }, [handleFrameExport]);
 
   const handleExportBoards = useCallback(async () => {
     if (boardsExportBusy) return;
@@ -219,6 +267,7 @@ function App() {
       <BoardList
         items={items}
         activeBoardId={activeBoardId}
+        thumbnails={thumbnails}
         onSelectBoard={handleSelectBoard}
         onCreateBoard={createBoard}
         onRenameBoard={renameBoard}
@@ -249,6 +298,7 @@ function App() {
           boardId={activeBoardId}
           boardName={activeBoardName}
           onDataChange={handleDataChange}
+          onThumbnailGenerated={handleThumbnailGenerated}
           initialData={currentBoardData}
           ref={excalidrawRef}
         />
