@@ -1132,3 +1132,35 @@
   color: var(--color-error-text);
   margin-bottom: var(--space-3);
 }
+
+/* =============================================================================
+   Thumbnail Hover Preview
+   ============================================================================= */
+
+.thumbnail-preview {
+  z-index: 1100;
+  pointer-events: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+  animation: thumbnail-fade-in 0.15s ease;
+}
+
+.thumbnail-preview-img {
+  display: block;
+  max-width: 280px;
+  max-height: 200px;
+  border-radius: var(--radius-lg);
+  object-fit: contain;
+}
+
+@keyframes thumbnail-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

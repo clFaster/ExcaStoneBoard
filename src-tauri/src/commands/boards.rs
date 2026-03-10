@@ -470,6 +470,25 @@ pub(crate) fn import_boards(
     Ok(BoardsImportResult { imported, skipped })
 }
 
+#[tauri::command]
+pub(crate) fn save_board_thumbnail(
+    app: AppHandle,
+    board_id: String,
+    thumbnail: Option<String>,
+) -> Result<(), String> {
+    let conn = open_db(&app)?;
+    let updated = conn
+        .execute(
+            "UPDATE boards SET thumbnail = ?1 WHERE id = ?2",
+            params![thumbnail, board_id],
+        )
+        .map_err(|e| e.to_string())?;
+    if updated == 0 {
+        return Err("Board not found".to_string());
+    }
+    Ok(())
+}
+
 fn build_export_entry(
     conn: &rusqlite::Connection,
     board: &Board,

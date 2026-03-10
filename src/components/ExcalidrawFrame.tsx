@@ -17,6 +17,16 @@ import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import type { AppState } from '@excalidraw/excalidraw/types';
 import './ExcalidrawFrame.css';
 
+const SAVE_DEBOUNCE_MS = 1000;
+const THUMBNAIL_DEBOUNCE_MS = 5000;
+const THUMBNAIL_MAX_DIM = 320;
+
+interface SceneSnapshot {
+  elements: ExcalidrawElement[];
+  appState: AppState;
+  files: BinaryFiles;
+}
+
 export interface ExcalidrawData {
   elements: ExcalidrawElement[];
   appState?: Partial<AppState>;
@@ -27,6 +37,7 @@ interface ExcalidrawFrameProps {
   boardId: string | null;
   boardName: string | null;
   onDataChange: (boardId: string, data: ExcalidrawData) => Promise<void>;
+  onThumbnailGenerated: (boardId: string, dataUrl: string) => void;
   initialData: ExcalidrawData | null;
 }
 
@@ -37,221 +48,331 @@ export interface ExcalidrawFrameHandle {
   flushSave: () => Promise<void>;
 }
 
+const clearTimer = (timerRef: React.MutableRefObject<number | null>) => {
+  if (timerRef.current) {
+    clearTimeout(timerRef.current);
+    timerRef.current = null;
+  }
+};
+
+const buildTimestamp = (date: Date): string => {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(
+    date.getHours(),
+  )}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
+};
+
+const sanitizeFileBaseName = (rawName: string): string => {
+  const cleaned = rawName
+    .replace(/[\\/:*?"<>|]+/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/\.+$/g, '')
+    .slice(0, 80);
+  return cleaned || 'board';
+};
+
+const buildExportFileName = (
+  boardName: string | null,
+  boardId: string | null,
+  extension: string,
+): string => {
+  const base = sanitizeFileBaseName((boardName || boardId || 'board').trim() || 'board');
+  return `${base}-${buildTimestamp(new Date())}.${extension}`;
+};
+
+const downloadFile = (blob: Blob, filename: string) => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+};
+
+const saveBlobWithDialog = async (blob: Blob, filename: string, extension: string) => {
+  try {
+    const filePath = await save({
+      defaultPath: filename,
+      filters: [{ name: extension.toUpperCase(), extensions: [extension] }],
+    });
+
+    if (!filePath) return;
+    const arrayBuffer = await blob.arrayBuffer();
+    await writeFile(filePath, new Uint8Array(arrayBuffer));
+  } catch (error) {
+    console.warn('Save dialog unavailable, falling back to download.', error);
+    downloadFile(blob, filename);
+  }
+};
+
+const getSceneSnapshot = (api: ExcalidrawImperativeAPI): SceneSnapshot => ({
+  elements: api.getSceneElements() as ExcalidrawElement[],
+  appState: api.getAppState(),
+  files: api.getFiles(),
+});
+
+const createExportPngBlob = async (snapshot: SceneSnapshot): Promise<Blob> =>
+  exportToBlob({
+    elements: snapshot.elements,
+    appState: {
+      ...snapshot.appState,
+      exportBackground: true,
+      exportEmbedScene: true,
+    },
+    files: snapshot.files,
+    mimeType: MIME_TYPES.png,
+  });
+
+const copySnapshotAsPng = async (snapshot: SceneSnapshot): Promise<void> =>
+  exportToClipboard({
+    elements: snapshot.elements,
+    appState: {
+      ...snapshot.appState,
+      exportBackground: true,
+      exportEmbedScene: true,
+    },
+    files: snapshot.files,
+    type: 'png',
+  });
+
+const createExportSvgBlob = async (snapshot: SceneSnapshot): Promise<Blob> => {
+  const svgElement = await exportToSvg({
+    elements: snapshot.elements,
+    appState: {
+      exportBackground: true,
+      exportEmbedScene: true,
+      viewBackgroundColor: snapshot.appState.viewBackgroundColor,
+    },
+    files: snapshot.files,
+  });
+
+  return new Blob([svgElement.outerHTML], { type: 'image/svg+xml' });
+};
+
+const toSerializableData = (snapshot: SceneSnapshot): ExcalidrawData => ({
+  elements: snapshot.elements,
+  appState: {
+    viewBackgroundColor: snapshot.appState.viewBackgroundColor,
+    currentItemStrokeColor: snapshot.appState.currentItemStrokeColor,
+    currentItemBackgroundColor: snapshot.appState.currentItemBackgroundColor,
+    currentItemFillStyle: snapshot.appState.currentItemFillStyle,
+    currentItemStrokeWidth: snapshot.appState.currentItemStrokeWidth,
+    currentItemRoughness: snapshot.appState.currentItemRoughness,
+    currentItemOpacity: snapshot.appState.currentItemOpacity,
+    currentItemFontFamily: snapshot.appState.currentItemFontFamily,
+    currentItemFontSize: snapshot.appState.currentItemFontSize,
+    currentItemTextAlign: snapshot.appState.currentItemTextAlign,
+    currentItemStartArrowhead: snapshot.appState.currentItemStartArrowhead,
+    currentItemEndArrowhead: snapshot.appState.currentItemEndArrowhead,
+    currentItemRoundness: snapshot.appState.currentItemRoundness,
+    gridSize: snapshot.appState.gridSize,
+    gridStep: snapshot.appState.gridStep,
+    gridModeEnabled: snapshot.appState.gridModeEnabled,
+    zenModeEnabled: snapshot.appState.zenModeEnabled,
+    theme: snapshot.appState.theme,
+  },
+  files: snapshot.files,
+});
+
+const createThumbnailBlob = async (snapshot: SceneSnapshot): Promise<Blob> =>
+  exportToBlob({
+    elements: snapshot.elements,
+    appState: {
+      ...snapshot.appState,
+      exportBackground: false,
+      exportEmbedScene: false,
+      exportWithDarkMode: true,
+    },
+    files: snapshot.files,
+    mimeType: MIME_TYPES.png,
+  });
+
+const blobToThumbnailDataUrl = async (blob: Blob): Promise<string | null> =>
+  new Promise((resolve) => {
+    const image = new Image();
+    const url = URL.createObjectURL(blob);
+
+    image.onload = () => {
+      const scale = Math.min(1, THUMBNAIL_MAX_DIM / Math.max(image.width, image.height));
+      const width = Math.round(image.width * scale);
+      const height = Math.round(image.height * scale);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+
+      const context = canvas.getContext('2d');
+      if (!context) {
+        URL.revokeObjectURL(url);
+        resolve(null);
+        return;
+      }
+
+      context.drawImage(image, 0, 0, width, height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL('image/png'));
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    };
+
+    image.src = url;
+  });
+
+const getInitialDataState = (initialData: ExcalidrawData | null): ExcalidrawInitialDataState => {
+  if (!initialData) {
+    return {
+      elements: [],
+      appState: {
+        viewBackgroundColor: '#ffffff',
+        theme: 'dark',
+      },
+    };
+  }
+
+  return {
+    elements: initialData.elements || [],
+    appState: {
+      ...initialData.appState,
+      theme: initialData.appState?.theme || 'dark',
+    },
+    files: initialData.files,
+  };
+};
+
 export const ExcalidrawFrame = forwardRef<ExcalidrawFrameHandle, ExcalidrawFrameProps>(
   function ExcalidrawFrame(
-    { boardId, boardName, onDataChange, initialData }: ExcalidrawFrameProps,
+    { boardId, boardName, onDataChange, onThumbnailGenerated, initialData }: ExcalidrawFrameProps,
     ref,
   ) {
     const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
     const saveTimeoutRef = useRef<number | null>(null);
+    const thumbnailTimeoutRef = useRef<number | null>(null);
     const [isReady, setIsReady] = useState(false);
     const lastSavedDataRef = useRef<string | null>(null);
 
-    const downloadFile = useCallback((blob: Blob, filename: string) => {
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-    }, []);
-
-    const buildExportName = useCallback(
-      (extension: string) => {
-        const rawName = (boardName || boardId || 'board').trim();
-        const baseName = rawName.length ? rawName : 'board';
-        const safeBaseName =
-          baseName
-            .replace(/[\\/:*?"<>|]+/g, '')
-            .replace(/\s+/g, '-')
-            .replace(/\.+$/g, '')
-            .slice(0, 80) || 'board';
-        const now = new Date();
-        const pad = (value: number) => String(value).padStart(2, '0');
-        const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(
-          now.getHours(),
-        )}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
-        return `${safeBaseName}-${timestamp}.${extension}`;
-      },
-      [boardId, boardName],
-    );
-
-    const saveBlobWithDialog = useCallback(
-      async (blob: Blob, filename: string, extension: string) => {
-        try {
-          const filePath = await save({
-            defaultPath: filename,
-            filters: [{ name: extension.toUpperCase(), extensions: [extension] }],
-          });
-
-          if (!filePath) return;
-          const arrayBuffer = await blob.arrayBuffer();
-          await writeFile(filePath, new Uint8Array(arrayBuffer));
-        } catch (error) {
-          console.warn('Save dialog unavailable, falling back to download.', error);
-          downloadFile(blob, filename);
-        }
-      },
-      [downloadFile],
-    );
-
     const exportPng = useCallback(async () => {
-      if (!excalidrawApiRef.current) return;
+      const api = excalidrawApiRef.current;
+      if (!api) return;
 
-      const elements = excalidrawApiRef.current.getSceneElements();
-      const appState = excalidrawApiRef.current.getAppState();
-      const files = excalidrawApiRef.current.getFiles();
-
-      const blob = await exportToBlob({
-        elements: elements as ExcalidrawElement[],
-        appState: {
-          ...appState,
-          exportBackground: true,
-          exportEmbedScene: true,
-        },
-        files,
-        mimeType: MIME_TYPES.png,
-      });
-
-      await saveBlobWithDialog(blob, buildExportName('png'), 'png');
-    }, [buildExportName, saveBlobWithDialog]);
+      const blob = await createExportPngBlob(getSceneSnapshot(api));
+      await saveBlobWithDialog(blob, buildExportFileName(boardName, boardId, 'png'), 'png');
+    }, [boardId, boardName]);
 
     const copyPng = useCallback(async () => {
-      if (!excalidrawApiRef.current) return;
+      const api = excalidrawApiRef.current;
+      if (!api) return;
 
-      const elements = excalidrawApiRef.current.getSceneElements();
-      const appState = excalidrawApiRef.current.getAppState();
-      const files = excalidrawApiRef.current.getFiles();
-
-      await exportToClipboard({
-        elements: elements as ExcalidrawElement[],
-        appState: {
-          ...appState,
-          exportBackground: true,
-          exportEmbedScene: true,
-        },
-        files,
-        type: 'png',
-      });
+      await copySnapshotAsPng(getSceneSnapshot(api));
     }, []);
 
     const exportSvg = useCallback(async () => {
-      if (!excalidrawApiRef.current) return;
+      const api = excalidrawApiRef.current;
+      if (!api) return;
 
-      const elements = excalidrawApiRef.current.getSceneElements();
-      const appState = excalidrawApiRef.current.getAppState();
-      const files = excalidrawApiRef.current.getFiles();
-
-      const svgElement = await exportToSvg({
-        elements: elements as ExcalidrawElement[],
-        appState: {
-          exportBackground: true,
-          exportEmbedScene: true,
-          viewBackgroundColor: appState.viewBackgroundColor,
-        },
-        files,
-      });
-
-      const svgBlob = new Blob([svgElement.outerHTML], { type: 'image/svg+xml' });
-      await saveBlobWithDialog(svgBlob, buildExportName('svg'), 'svg');
-    }, [buildExportName, saveBlobWithDialog]);
+      const blob = await createExportSvgBlob(getSceneSnapshot(api));
+      await saveBlobWithDialog(blob, buildExportFileName(boardName, boardId, 'svg'), 'svg');
+    }, [boardId, boardName]);
 
     const collectData = useCallback((): ExcalidrawData | null => {
-      if (!excalidrawApiRef.current) return null;
-
-      const elements = excalidrawApiRef.current.getSceneElements();
-      const appState = excalidrawApiRef.current.getAppState();
-      const files = excalidrawApiRef.current.getFiles();
-
-      return {
-        elements: elements as ExcalidrawElement[],
-        appState: {
-          viewBackgroundColor: appState.viewBackgroundColor,
-          currentItemStrokeColor: appState.currentItemStrokeColor,
-          currentItemBackgroundColor: appState.currentItemBackgroundColor,
-          currentItemFillStyle: appState.currentItemFillStyle,
-          currentItemStrokeWidth: appState.currentItemStrokeWidth,
-          currentItemRoughness: appState.currentItemRoughness,
-          currentItemOpacity: appState.currentItemOpacity,
-          currentItemFontFamily: appState.currentItemFontFamily,
-          currentItemFontSize: appState.currentItemFontSize,
-          currentItemTextAlign: appState.currentItemTextAlign,
-          currentItemStartArrowhead: appState.currentItemStartArrowhead,
-          currentItemEndArrowhead: appState.currentItemEndArrowhead,
-          currentItemRoundness: appState.currentItemRoundness,
-          gridSize: appState.gridSize,
-          gridStep: appState.gridStep,
-          gridModeEnabled: appState.gridModeEnabled,
-          zenModeEnabled: appState.zenModeEnabled,
-          theme: appState.theme,
-        },
-        files: files,
-      };
+      const api = excalidrawApiRef.current;
+      if (!api) return null;
+      return toSerializableData(getSceneSnapshot(api));
     }, []);
 
     const saveData = useCallback(
       async (data: ExcalidrawData) => {
         if (!boardId) return;
+
         const dataStr = JSON.stringify(data);
-        if (dataStr !== lastSavedDataRef.current) {
-          lastSavedDataRef.current = dataStr;
-          await onDataChange(boardId, data);
-        }
+        if (dataStr === lastSavedDataRef.current) return;
+
+        lastSavedDataRef.current = dataStr;
+        await onDataChange(boardId, data);
       },
       [boardId, onDataChange],
     );
 
-    // Debounced save function
-    const scheduleSave = useCallback(() => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
+    const flushSave = useCallback(async () => {
+      clearTimer(saveTimeoutRef);
+      if (!boardId) return;
 
+      const data = collectData();
+      if (!data) return;
+
+      await saveData(data);
+    }, [boardId, collectData, saveData]);
+
+    const scheduleSave = useCallback(() => {
+      clearTimer(saveTimeoutRef);
       saveTimeoutRef.current = window.setTimeout(() => {
         if (!boardId) return;
         const data = collectData();
         if (!data) return;
         void saveData(data);
-      }, 1000); // Save 1 second after last change
+      }, SAVE_DEBOUNCE_MS);
     }, [boardId, collectData, saveData]);
 
-    const flushSave = useCallback(async () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-        saveTimeoutRef.current = null;
+    const generateThumbnail = useCallback(async () => {
+      const api = excalidrawApiRef.current;
+      if (!api || !boardId) return;
+
+      const snapshot = getSceneSnapshot(api);
+      if (snapshot.elements.length === 0) return;
+
+      try {
+        const blob = await createThumbnailBlob(snapshot);
+        const dataUrl = await blobToThumbnailDataUrl(blob);
+        if (dataUrl) {
+          onThumbnailGenerated(boardId, dataUrl);
+        }
+      } catch (error) {
+        console.error('Failed to generate thumbnail:', error);
       }
-      if (!boardId) return;
-      const data = collectData();
-      if (!data) return;
-      await saveData(data);
-    }, [boardId, collectData, saveData]);
+    }, [boardId, onThumbnailGenerated]);
+
+    const flushThumbnail = useCallback(async () => {
+      clearTimer(thumbnailTimeoutRef);
+      await generateThumbnail();
+    }, [generateThumbnail]);
+
+    const scheduleThumbnail = useCallback(() => {
+      clearTimer(thumbnailTimeoutRef);
+      thumbnailTimeoutRef.current = window.setTimeout(() => {
+        void generateThumbnail();
+      }, THUMBNAIL_DEBOUNCE_MS);
+    }, [generateThumbnail]);
 
     useImperativeHandle(ref, () => ({
       exportPng,
       copyPng,
       exportSvg,
-      flushSave,
+      flushSave: async () => {
+        await flushSave();
+        await flushThumbnail();
+      },
     }));
 
-    // Handle Excalidraw changes
     const handleChange = useCallback(
       (_elements: readonly ExcalidrawElement[], _appState: AppState, _files: BinaryFiles) => {
         if (!boardId || !isReady) return;
         scheduleSave();
+        scheduleThumbnail();
       },
-      [boardId, isReady, scheduleSave],
+      [boardId, isReady, scheduleSave, scheduleThumbnail],
     );
 
-    // Cleanup on unmount
-    useEffect(() => {
-      return () => {
-        if (saveTimeoutRef.current) {
-          clearTimeout(saveTimeoutRef.current);
-        }
-      };
-    }, []);
+    useEffect(
+      () => () => {
+        clearTimer(saveTimeoutRef);
+        clearTimer(thumbnailTimeoutRef);
+      },
+      [],
+    );
 
     if (!boardId) {
       return (
@@ -275,28 +396,6 @@ export const ExcalidrawFrame = forwardRef<ExcalidrawFrameHandle, ExcalidrawFrame
       );
     }
 
-    // Prepare initial data for Excalidraw
-    const getInitialData = (): ExcalidrawInitialDataState | undefined => {
-      if (!initialData) {
-        return {
-          elements: [],
-          appState: {
-            viewBackgroundColor: '#ffffff',
-            theme: 'dark',
-          },
-        };
-      }
-
-      return {
-        elements: initialData.elements || [],
-        appState: {
-          ...initialData.appState,
-          theme: initialData.appState?.theme || 'dark',
-        },
-        files: initialData.files,
-      };
-    };
-
     return (
       <div className="excalidraw-frame">
         <Excalidraw
@@ -304,7 +403,7 @@ export const ExcalidrawFrame = forwardRef<ExcalidrawFrameHandle, ExcalidrawFrame
             excalidrawApiRef.current = api;
             setIsReady(true);
           }}
-          initialData={getInitialData()}
+          initialData={getInitialDataState(initialData)}
           onChange={handleChange}
           theme="dark"
           UIOptions={{
