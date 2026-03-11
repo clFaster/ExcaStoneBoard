@@ -118,6 +118,45 @@ const pruneCollapsedFolderState = (
   return next;
 };
 
+const handleInlineEditorKeyDown = (
+  event: React.KeyboardEvent<HTMLInputElement>,
+  onSave: () => void,
+  onCancel: () => void,
+) => {
+  if (event.key === 'Enter') {
+    onSave();
+    return;
+  }
+
+  if (event.key === 'Escape') {
+    onCancel();
+  }
+};
+
+const resolveDialogFilePath = (result: string | string[] | null) => {
+  if (!result) {
+    return null;
+  }
+
+  return Array.isArray(result) ? result[0] || null : result;
+};
+
+const buildImportSelectionMap = (entries: ImportBoardEntry[], existingBoardIds: Set<string>) => {
+  const seenImportIds = new Set<string>();
+  return Object.fromEntries(
+    entries.map((entry) => {
+      const hasId = Boolean(entry.id);
+      const isDuplicate = hasId && (existingBoardIds.has(entry.id) || seenImportIds.has(entry.id));
+
+      if (hasId) {
+        seenImportIds.add(entry.id);
+      }
+
+      return [entry.key, !isDuplicate];
+    }),
+  );
+};
+
 // =============================================================================
 // Draggable/Droppable Item Components
 // =============================================================================
@@ -302,6 +341,14 @@ function DraggableFolderItem({
   const dropClass = dropPosition ? `drop-${dropPosition}` : '';
   const dragClass = isDragging || isDragSource ? 'is-dragging' : '';
 
+  const handleToggleClick = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      onToggleCollapse();
+    },
+    [onToggleCollapse],
+  );
+
   return (
     <div ref={setNodeRef} className={`board-folder ${dragClass} ${dropClass}`}>
       {isEditing ? (
@@ -315,10 +362,7 @@ function DraggableFolderItem({
               type="text"
               value={editName}
               onChange={(e) => onEditNameChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') onSaveEdit();
-                if (e.key === 'Escape') onCancelEdit();
-              }}
+              onKeyDown={(e) => handleInlineEditorKeyDown(e, onSaveEdit, onCancelEdit)}
               autoFocus
               className="edit-input"
               onPointerDown={(e) => e.stopPropagation()}
@@ -334,10 +378,7 @@ function DraggableFolderItem({
             type="button"
             className={`folder-toggle ${isCollapsed ? 'collapsed' : ''}`}
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleCollapse();
-            }}
+            onClick={handleToggleClick}
             aria-label={isCollapsed ? 'Expand folder' : 'Collapse folder'}
           >
             <FontAwesomeIcon icon={isCollapsed ? faChevronRight : faChevronDown} />
@@ -772,6 +813,7 @@ export function BoardList({
 
   const handleOpenImport = async () => {
     setImportError(null);
+
     try {
       const result = await openDialog({
         title: 'Import boards',
@@ -780,31 +822,23 @@ export function BoardList({
         filters: [{ name: 'Boards export', extensions: ['json'] }],
       });
 
-      if (!result) return;
-      const filePath = Array.isArray(result) ? result[0] : result;
-      if (!filePath) return;
+      const filePath = resolveDialogFilePath(result);
+      if (!filePath) {
+        return;
+      }
 
       const content = await readTextFile(filePath);
       const parsed = JSON.parse(content) as Partial<BoardsExportFile>;
       const entries = buildImportBoards(parsed);
+
       if (entries.length === 0) {
         setImportError('No boards found in the selected file.');
         return;
       }
 
-      const seenImportIds = new Set<string>();
-      const selection = Object.fromEntries(
-        entries.map((entry) => {
-          const hasId = Boolean(entry.id);
-          const isDuplicate =
-            hasId && (existingBoardIds.has(entry.id) || seenImportIds.has(entry.id));
-          if (hasId) {
-            seenImportIds.add(entry.id);
-          }
-          return [entry.key, !isDuplicate];
-        }),
-      );
+      const selection = buildImportSelectionMap(entries, existingBoardIds);
       const sourceName = filePath.split(/[\\/]/).pop() || 'Import file';
+
       setImportBoards(entries);
       setImportSelection(selection);
       setImportSourceName(sourceName);
