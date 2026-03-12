@@ -1,6 +1,7 @@
 use chrono::Utc;
 use rusqlite::params;
 use serde_json::Value as JsonValue;
+use std::collections::HashSet;
 use std::fs;
 use tauri::AppHandle;
 use uuid::Uuid;
@@ -35,38 +36,8 @@ pub(crate) fn create_board(app: AppHandle, name: String) -> Result<Board, String
     };
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
-    tx.execute(
-        "INSERT INTO boards (id, name, created_at, updated_at, collaboration_link, thumbnail)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            board.id,
-            board.name,
-            board.created_at.timestamp_millis(),
-            board.updated_at.timestamp_millis(),
-            board.collaboration_link,
-            board.thumbnail
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-
-    tx.execute(
-        "INSERT INTO board_data (board_id, data) VALUES (?1, ?2)",
-        params![board.id, default_board_data()],
-    )
-    .map_err(|e| e.to_string())?;
-
-    let position: i64 = tx
-        .query_row(
-            "SELECT COALESCE(MAX(position), -1) + 1 FROM index_items",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(|e| e.to_string())?;
-    tx.execute(
-        "INSERT INTO index_items (position, item_type, item_id) VALUES (?1, 'board', ?2)",
-        params![position, board.id],
-    )
-    .map_err(|e| e.to_string())?;
+    let board_data = default_board_data();
+    insert_board_with_data(&tx, &board, &board_data)?;
 
     tx.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_board_id', ?1)",
@@ -237,37 +208,7 @@ pub(crate) fn duplicate_board(
     };
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
-    tx.execute(
-        "INSERT INTO boards (id, name, created_at, updated_at, collaboration_link, thumbnail)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            new_board.id,
-            new_board.name,
-            new_board.created_at.timestamp_millis(),
-            new_board.updated_at.timestamp_millis(),
-            new_board.collaboration_link,
-            new_board.thumbnail
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-    tx.execute(
-        "INSERT INTO board_data (board_id, data) VALUES (?1, ?2)",
-        params![new_board.id, original_data],
-    )
-    .map_err(|e| e.to_string())?;
-
-    let position: i64 = tx
-        .query_row(
-            "SELECT COALESCE(MAX(position), -1) + 1 FROM index_items",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(|e| e.to_string())?;
-    tx.execute(
-        "INSERT INTO index_items (position, item_type, item_id) VALUES (?1, 'board', ?2)",
-        params![position, new_board.id],
-    )
-    .map_err(|e| e.to_string())?;
+    insert_board_with_data(&tx, &new_board, &original_data)?;
 
     tx.commit().map_err(|e| e.to_string())?;
     Ok(new_board)
@@ -343,7 +284,7 @@ pub(crate) fn export_boards(app: AppHandle, file_path: String) -> Result<(), Str
     let index = load_boards_index_from_db(&conn)?;
 
     let mut boards = Vec::new();
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = HashSet::new();
 
     for item in index.items.iter() {
         match item {
@@ -386,60 +327,18 @@ pub(crate) fn import_boards(
     let conn = open_db(&app)?;
     let active_before = get_setting(&conn, "active_board_id")?;
 
-    let mut stmt = conn
-        .prepare("SELECT id, name FROM boards")
-        .map_err(|e| e.to_string())?;
-    let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
-    let mut existing_ids = std::collections::HashSet::new();
-    let mut used_names = std::collections::HashSet::new();
-
-    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
-        let id: String = row.get(0).map_err(|e| e.to_string())?;
-        let name: String = row.get(1).map_err(|e| e.to_string())?;
-        existing_ids.insert(id);
-        let name_key = name.trim().to_lowercase();
-        if !name_key.is_empty() {
-            used_names.insert(name_key);
-        }
-    }
-
-    let selected: std::collections::HashSet<usize> = selected_indices.into_iter().collect();
+    let (existing_ids, mut used_names) = load_existing_board_ids_and_names(&conn)?;
+    let selected: HashSet<usize> = selected_indices.into_iter().collect();
     let mut seen_ids = existing_ids;
     let mut imported = 0;
     let mut skipped = 0;
-
-    let make_copy_name = |base: &str, used: &mut std::collections::HashSet<String>| {
-        let clean = if base.trim().is_empty() {
-            "Imported board"
-        } else {
-            base.trim()
-        };
-        let mut candidate = format!("{} (Copy)", clean);
-        let mut counter = 2;
-        while used.contains(&candidate.to_lowercase()) {
-            candidate = format!("{} (Copy {})", clean, counter);
-            counter += 1;
-        }
-        candidate
-    };
 
     for (index, entry) in export_file.boards.iter().enumerate() {
         if !selected.contains(&index) {
             continue;
         }
 
-        let base_name = if entry.name.trim().is_empty() {
-            "Imported board"
-        } else {
-            entry.name.trim()
-        };
-        let has_id = !entry.id.trim().is_empty();
-        let is_duplicate = has_id && seen_ids.contains(&entry.id);
-        let final_name = if is_duplicate {
-            make_copy_name(base_name, &mut used_names)
-        } else {
-            base_name.to_string()
-        };
+        let final_name = resolve_import_name(entry, &seen_ids, &used_names);
 
         let created = match create_board(app.clone(), final_name.clone()) {
             Ok(board) => board,
@@ -456,16 +355,11 @@ pub(crate) fn import_boards(
             }
         }
 
-        used_names.insert(final_name.to_lowercase());
-        if has_id {
-            seen_ids.insert(entry.id.clone());
-        }
+        register_imported_identity(entry, &final_name, &mut seen_ids, &mut used_names);
         imported += 1;
     }
 
-    if let Some(active_id) = active_before {
-        set_setting(&conn, "active_board_id", Some(&active_id))?;
-    }
+    restore_active_board(&conn, active_before)?;
 
     Ok(BoardsImportResult { imported, skipped })
 }
@@ -485,6 +379,130 @@ pub(crate) fn save_board_thumbnail(
         .map_err(|e| e.to_string())?;
     if updated == 0 {
         return Err("Board not found".to_string());
+    }
+    Ok(())
+}
+
+fn insert_board_with_data(
+    tx: &rusqlite::Transaction<'_>,
+    board: &Board,
+    data: &str,
+) -> Result<(), String> {
+    tx.execute(
+        "INSERT INTO boards (id, name, created_at, updated_at, collaboration_link, thumbnail)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            &board.id,
+            &board.name,
+            board.created_at.timestamp_millis(),
+            board.updated_at.timestamp_millis(),
+            &board.collaboration_link,
+            &board.thumbnail
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    tx.execute(
+        "INSERT INTO board_data (board_id, data) VALUES (?1, ?2)",
+        params![&board.id, data],
+    )
+    .map_err(|e| e.to_string())?;
+
+    let position = next_index_position(tx)?;
+    tx.execute(
+        "INSERT INTO index_items (position, item_type, item_id) VALUES (?1, 'board', ?2)",
+        params![position, &board.id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+fn next_index_position(tx: &rusqlite::Transaction<'_>) -> Result<i64, String> {
+    tx.query_row(
+        "SELECT COALESCE(MAX(position), -1) + 1 FROM index_items",
+        [],
+        |row| row.get(0),
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn load_existing_board_ids_and_names(
+    conn: &rusqlite::Connection,
+) -> Result<(HashSet<String>, HashSet<String>), String> {
+    let mut stmt = conn
+        .prepare("SELECT id, name FROM boards")
+        .map_err(|e| e.to_string())?;
+    let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
+    let mut ids = HashSet::new();
+    let mut used_names = HashSet::new();
+
+    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        let id: String = row.get(0).map_err(|e| e.to_string())?;
+        let name: String = row.get(1).map_err(|e| e.to_string())?;
+
+        ids.insert(id);
+        let name_key = name.trim().to_lowercase();
+        if !name_key.is_empty() {
+            used_names.insert(name_key);
+        }
+    }
+
+    Ok((ids, used_names))
+}
+
+fn normalize_import_name(name: &str) -> String {
+    if name.trim().is_empty() {
+        "Imported board".to_string()
+    } else {
+        name.trim().to_string()
+    }
+}
+
+fn make_copy_name(base: &str, used_names: &HashSet<String>) -> String {
+    let mut candidate = format!("{} (Copy)", base);
+    let mut counter = 2;
+    while used_names.contains(&candidate.to_lowercase()) {
+        candidate = format!("{} (Copy {})", base, counter);
+        counter += 1;
+    }
+    candidate
+}
+
+fn resolve_import_name(
+    entry: &BoardsExportEntry,
+    seen_ids: &HashSet<String>,
+    used_names: &HashSet<String>,
+) -> String {
+    let base_name = normalize_import_name(&entry.name);
+    let has_id = !entry.id.trim().is_empty();
+    let is_duplicate = has_id && seen_ids.contains(&entry.id);
+    if is_duplicate {
+        make_copy_name(&base_name, used_names)
+    } else {
+        base_name
+    }
+}
+
+fn register_imported_identity(
+    entry: &BoardsExportEntry,
+    final_name: &str,
+    seen_ids: &mut HashSet<String>,
+    used_names: &mut HashSet<String>,
+) {
+    let has_id = !entry.id.trim().is_empty();
+    used_names.insert(final_name.to_lowercase());
+    if has_id {
+        seen_ids.insert(entry.id.clone());
+    }
+}
+
+fn restore_active_board(
+    conn: &rusqlite::Connection,
+    active_before: Option<String>,
+) -> Result<(), String> {
+    if let Some(active_id) = active_before {
+        set_setting(conn, "active_board_id", Some(&active_id))?;
     }
     Ok(())
 }
