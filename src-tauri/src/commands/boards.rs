@@ -338,7 +338,7 @@ pub(crate) fn import_boards(
             continue;
         }
 
-        let (final_name, has_id) = resolve_import_name(entry, &seen_ids, &used_names);
+        let final_name = resolve_import_name(entry, &seen_ids, &used_names);
 
         let created = match create_board(app.clone(), final_name.clone()) {
             Ok(board) => board,
@@ -355,7 +355,7 @@ pub(crate) fn import_boards(
             }
         }
 
-        register_imported_identity(entry, has_id, &final_name, &mut seen_ids, &mut used_names);
+        register_imported_identity(entry, &final_name, &mut seen_ids, &mut used_names);
         imported += 1;
     }
 
@@ -473,26 +473,24 @@ fn resolve_import_name(
     entry: &BoardsExportEntry,
     seen_ids: &HashSet<String>,
     used_names: &HashSet<String>,
-) -> (String, bool) {
+) -> String {
     let base_name = normalize_import_name(&entry.name);
     let has_id = !entry.id.trim().is_empty();
     let is_duplicate = has_id && seen_ids.contains(&entry.id);
-    let final_name = if is_duplicate {
+    if is_duplicate {
         make_copy_name(&base_name, used_names)
     } else {
         base_name
-    };
-
-    (final_name, has_id)
+    }
 }
 
 fn register_imported_identity(
     entry: &BoardsExportEntry,
-    has_id: bool,
     final_name: &str,
     seen_ids: &mut HashSet<String>,
     used_names: &mut HashSet<String>,
 ) {
+    let has_id = !entry.id.trim().is_empty();
     used_names.insert(final_name.to_lowercase());
     if has_id {
         seen_ids.insert(entry.id.clone());
