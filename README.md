@@ -63,6 +63,25 @@ $env:TAURI_TEST_RUN_ID = "local-smoke"
 pnpm run tauri dev
 ```
 
+## System Tests (WebdriverIO + tauri-driver)
+
+Run the system smoke suite:
+
+```bash
+pnpm run test:system
+```
+
+Prerequisites:
+
+- Install `tauri-driver`: `cargo install tauri-driver --locked`
+- On Windows, ensure `msedgedriver` is installed and version-matched to Edge
+
+Useful env overrides:
+
+- `TAURI_TEST_RUN_ID`: isolate each run's app data folder
+- `TAURI_DRIVER_PATH`: explicit path to `tauri-driver`
+- `TAURI_TEST_EXPORT_PATH` / `TAURI_TEST_IMPORT_PATH`: deterministic transfer file paths
+
 ## How It Works
 
 **Board Management**: The app stores board metadata and data in your system's app data directory
