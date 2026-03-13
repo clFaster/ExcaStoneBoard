@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { confirm, open as openDialog } from '@tauri-apps/plugin-dialog';
 import { readTextFile } from '@tauri-apps/plugin-fs';
@@ -230,6 +231,7 @@ function DraggableBoardItem({
     <div
       ref={setNodeRef}
       className={`board-item ${isActive ? 'active' : ''} ${dragClass} ${dropClass}`}
+      data-testid={`board-item-${board.id}`}
       onClick={() => !isEditing && onSelect()}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
@@ -272,6 +274,7 @@ function DraggableBoardItem({
           <div className="board-actions">
             <button
               className="menu-btn"
+              data-testid={`board-menu-btn-${board.id}`}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={onOpenMenu}
             >
@@ -815,14 +818,18 @@ export function BoardList({
     setImportError(null);
 
     try {
-      const result = await openDialog({
-        title: 'Import boards',
-        multiple: false,
-        directory: false,
-        filters: [{ name: 'Boards export', extensions: ['json'] }],
-      });
+      const testImportPath = await invoke<string | null>('get_system_test_import_path');
+      const filePath = testImportPath
+        ? testImportPath
+        : resolveDialogFilePath(
+            await openDialog({
+              title: 'Import boards',
+              multiple: false,
+              directory: false,
+              filters: [{ name: 'Boards export', extensions: ['json'] }],
+            }),
+          );
 
-      const filePath = resolveDialogFilePath(result);
       if (!filePath) {
         return;
       }
@@ -1098,15 +1105,19 @@ export function BoardList({
       if (!board) return null;
       return (
         <>
-          <button onClick={() => handleStartEdit(board)}>
+          <button data-testid="board-action-rename" onClick={() => handleStartEdit(board)}>
             <FontAwesomeIcon icon={faPen} />
             Rename
           </button>
-          <button onClick={() => handleDuplicate(board)}>
+          <button data-testid="board-action-duplicate" onClick={() => handleDuplicate(board)}>
             <FontAwesomeIcon icon={faClone} />
             Duplicate
           </button>
-          <button className="danger" onClick={() => handleDelete(board)}>
+          <button
+            className="danger"
+            data-testid="board-action-delete"
+            onClick={() => handleDelete(board)}
+          >
             <FontAwesomeIcon icon={faTrash} />
             Delete
           </button>
@@ -1181,7 +1192,12 @@ export function BoardList({
         <div className="board-list-header">
           <h2>Boards</h2>
           <div className="board-header-actions">
-            <button className="icon-btn" onClick={openSettings} title="Settings">
+            <button
+              className="icon-btn"
+              data-testid="open-settings-btn"
+              onClick={openSettings}
+              title="Settings"
+            >
               <FontAwesomeIcon icon={faGear} />
             </button>
             <button className="toggle-btn" onClick={onToggleCollapse} title="Collapse sidebar">
@@ -1228,12 +1244,18 @@ export function BoardList({
         <form className="new-board-form" onSubmit={handleCreateBoard}>
           <input
             type="text"
+            data-testid="create-board-input"
             value={newBoardName}
             onChange={(e) => setNewBoardName(e.target.value)}
             placeholder="New board name..."
             className="new-board-input"
           />
-          <button type="submit" className="new-board-btn" disabled={!newBoardName.trim()}>
+          <button
+            type="submit"
+            className="new-board-btn"
+            data-testid="create-board-submit"
+            disabled={!newBoardName.trim()}
+          >
             <FontAwesomeIcon icon={faPlus} />
           </button>
         </form>
@@ -1360,7 +1382,11 @@ export function BoardList({
       {settingsOpen
         ? createPortal(
             <div className="modal-overlay" onClick={closeSettings}>
-              <div className="modal settings-modal" onClick={(event) => event.stopPropagation()}>
+              <div
+                className="modal settings-modal"
+                data-testid="settings-modal"
+                onClick={(event) => event.stopPropagation()}
+              >
                 <h3>Settings</h3>
                 <div className="settings-section">
                   <div className="settings-section-title">Boards</div>
@@ -1390,6 +1416,7 @@ export function BoardList({
                   <label className="settings-toggle">
                     <input
                       type="checkbox"
+                      data-testid="toggle-hide-export-row"
                       checked={hideExportRow}
                       onChange={(e) => setHideExportRow(e.target.checked)}
                     />
@@ -1405,6 +1432,7 @@ export function BoardList({
                   <label className="settings-toggle">
                     <input
                       type="checkbox"
+                      data-testid="toggle-show-timestamps"
                       checked={showTimestamps}
                       onChange={(e) => setShowTimestamps(e.target.checked)}
                     />
@@ -1428,7 +1456,11 @@ export function BoardList({
                   </button>
                 </div>
                 <div className="modal-actions">
-                  <button className="cancel-btn" onClick={closeSettings}>
+                  <button
+                    className="cancel-btn"
+                    data-testid="close-settings-btn"
+                    onClick={closeSettings}
+                  >
                     Close
                   </button>
                 </div>

@@ -47,6 +47,22 @@ npm run tauri build
 pnpm run tauri:windows:build --arch "x64,arm64" --runner pnpm
 ```
 
+## System Test Mode
+
+For deterministic system-test runs, you can enable test mode:
+
+- `TAURI_TEST_MODE=1` enables deterministic import/export paths and test data isolation.
+- `TAURI_TEST_RUN_ID` (optional) isolates each run into its own data subdirectory.
+- `TAURI_TEST_EXPORT_PATH` and `TAURI_TEST_IMPORT_PATH` (optional) override deterministic file paths.
+
+Windows PowerShell example:
+
+```powershell
+$env:TAURI_TEST_MODE = "1"
+$env:TAURI_TEST_RUN_ID = "local-smoke"
+pnpm run tauri dev
+```
+
 ## How It Works
 
 **Board Management**: The app stores board metadata and data in your system's app data directory

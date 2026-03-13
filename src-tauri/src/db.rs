@@ -9,9 +9,43 @@ use crate::models::{Board, BoardFolder, BoardListItem, BoardsIndex};
 
 pub(crate) fn get_boards_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let boards_dir = app_data.join("boards");
+    let mut boards_dir = app_data.join("boards");
+
+    if is_system_test_mode() {
+        boards_dir = app_data.join("boards-system-tests");
+        if let Some(run_id) = system_test_run_id() {
+            boards_dir = boards_dir.join(run_id);
+        }
+    }
+
     fs::create_dir_all(&boards_dir).map_err(|e| e.to_string())?;
     Ok(boards_dir)
+}
+
+fn is_system_test_mode() -> bool {
+    matches!(
+        std::env::var("TAURI_TEST_MODE").ok().as_deref(),
+        Some("1" | "true" | "TRUE" | "True")
+    )
+}
+
+fn system_test_run_id() -> Option<String> {
+    std::env::var("TAURI_TEST_RUN_ID")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            value
+                .chars()
+                .map(|character| {
+                    if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
+                        character
+                    } else {
+                        '_'
+                    }
+                })
+                .collect::<String>()
+        })
 }
 
 pub(crate) fn default_board_data() -> String {

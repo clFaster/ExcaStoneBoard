@@ -3,9 +3,10 @@ mod db;
 mod models;
 
 use crate::commands::boards::{
-    create_board, delete_board, duplicate_board, export_boards, get_boards, import_boards,
-    load_board_data, rename_board, save_board_data, save_board_thumbnail, set_active_board,
-    set_boards_index, set_collaboration_link,
+    create_board, delete_board, duplicate_board, export_boards, get_boards,
+    get_system_test_export_path, get_system_test_import_path, import_boards, load_board_data,
+    rename_board, save_board_data, save_board_thumbnail, set_active_board, set_boards_index,
+    set_collaboration_link,
 };
 use tauri::{Emitter, Listener, Manager};
 
@@ -52,7 +53,9 @@ pub fn run() {
             set_boards_index,
             export_boards,
             import_boards,
-            save_board_thumbnail
+            save_board_thumbnail,
+            get_system_test_export_path,
+            get_system_test_import_path
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
