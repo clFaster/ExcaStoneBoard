@@ -154,22 +154,44 @@ function ensureBinaryAvailable(commandName) {
   return lookup.status === 0;
 }
 
-function verifyDriverPrerequisites() {
+function assertAbsoluteDriverPathExists() {
   if (path.isAbsolute(tauriDriverBinary) && !fs.existsSync(tauriDriverBinary)) {
     throw new Error(`TAURI_DRIVER_PATH points to a missing binary: ${tauriDriverBinary}`);
   }
+}
 
-  if (!path.isAbsolute(tauriDriverBinary) && !ensureBinaryAvailable('tauri-driver')) {
-    throw new Error('tauri-driver not found. Install it with: cargo install tauri-driver --locked');
+function assertDriverBinaryResolvable() {
+  if (path.isAbsolute(tauriDriverBinary)) {
+    return;
   }
 
-  if (process.platform === 'win32' && !process.env.TAURI_NATIVE_DRIVER_PATH) {
-    const hasEdgeDriver = ensureBinaryAvailable('msedgedriver');
-    if (!hasEdgeDriver) {
-      throw new Error(
-        'msedgedriver not found in PATH. Install a version matching Edge or set TAURI_NATIVE_DRIVER_PATH.',
-      );
-    }
+  if (ensureBinaryAvailable('tauri-driver')) {
+    return;
+  }
+
+  throw new Error('tauri-driver not found. Install it with: cargo install tauri-driver --locked');
+}
+
+function needsEdgeDriverValidation() {
+  return process.platform === 'win32' && !process.env.TAURI_NATIVE_DRIVER_PATH;
+}
+
+function assertEdgeDriverAvailable() {
+  if (ensureBinaryAvailable('msedgedriver')) {
+    return;
+  }
+
+  throw new Error(
+    'msedgedriver not found in PATH. Install a version matching Edge or set TAURI_NATIVE_DRIVER_PATH.',
+  );
+}
+
+function verifyDriverPrerequisites() {
+  assertAbsoluteDriverPathExists();
+  assertDriverBinaryResolvable();
+
+  if (needsEdgeDriverValidation()) {
+    assertEdgeDriverAvailable();
   }
 }
 

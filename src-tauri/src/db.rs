@@ -35,18 +35,15 @@ fn system_test_run_id() -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .map(|value| {
-            value
-                .chars()
-                .map(|character| {
-                    if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
-                        character
-                    } else {
-                        '_'
-                    }
-                })
-                .collect::<String>()
-        })
+        .map(|value| value.chars().map(normalize_run_id_char).collect::<String>())
+}
+
+fn normalize_run_id_char(character: char) -> char {
+    if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
+        character
+    } else {
+        '_'
+    }
 }
 
 fn system_test_data_root() -> Option<PathBuf> {

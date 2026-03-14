@@ -2,12 +2,16 @@ mod commands;
 mod db;
 mod models;
 
-use crate::commands::boards::{
-    create_board, delete_board, duplicate_board, export_boards, get_boards,
-    get_system_test_export_path, get_system_test_import_path, get_ui_preferences, import_boards,
-    load_board_data, rename_board, save_board_data, save_board_thumbnail, set_active_board,
-    set_boards_index, set_collaboration_link, set_ui_preference,
+use crate::commands::board_content::{
+    load_board_data, save_board_data, save_board_thumbnail, set_collaboration_link,
 };
+use crate::commands::board_transfer::{export_boards, import_boards};
+use crate::commands::boards::{
+    create_board, delete_board, duplicate_board, get_boards, rename_board, set_active_board,
+    set_boards_index,
+};
+use crate::commands::system_tests::{get_system_test_export_path, get_system_test_import_path};
+use crate::commands::ui_preferences::{get_ui_preferences, set_ui_preference};
 use tauri::{Emitter, Listener, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
