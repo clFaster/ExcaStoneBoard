@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 const tauriDriverPort = 4444;
+const artifactsDir = path.resolve(repoRoot, '.wdio-artifacts');
 
 const appBinaryName = process.platform === 'win32' ? 'excastoneboard.exe' : 'excastoneboard';
 const appBinaryPath = path.resolve(repoRoot, 'src-tauri', 'target', 'debug', appBinaryName);
@@ -45,6 +46,13 @@ function sanitizeRunId(value) {
   return value
     .split('')
     .map((character) => (/^[a-zA-Z0-9_-]$/.test(character) ? character : '_'))
+    .join('');
+}
+
+function sanitizeFileName(value) {
+  return value
+    .split('')
+    .map((character) => (/^[a-zA-Z0-9_.-]$/.test(character) ? character : '_'))
     .join('');
 }
 
@@ -247,6 +255,7 @@ export const config = {
       },
     },
   ],
+  outputDir: artifactsDir,
   logLevel: 'warn',
   bail: 0,
   maxInstancesPerCapability: 1,
@@ -262,6 +271,7 @@ export const config = {
   },
   onPrepare: async () => {
     ensureSystemTestEnvironment();
+    await fs.promises.mkdir(path.join(artifactsDir, 'screenshots'), { recursive: true });
     if (shouldCleanupTestData()) {
       await cleanupStaleRunData();
       await cleanupCurrentRunData();
@@ -281,5 +291,14 @@ export const config = {
     if (shouldCleanupTestData()) {
       await cleanupCurrentRunData();
     }
+  },
+  afterTest: async (test, _context, result) => {
+    if (result.passed) {
+      return;
+    }
+
+    const testName = sanitizeFileName(test.fullTitle || test.title || 'test-failure');
+    const screenshotPath = path.join(artifactsDir, 'screenshots', `${testName}.png`);
+    await browser.saveScreenshot(screenshotPath);
   },
 };
