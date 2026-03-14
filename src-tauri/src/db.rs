@@ -12,7 +12,8 @@ pub(crate) fn get_boards_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let mut boards_dir = app_data.join("boards");
 
     if is_system_test_mode() {
-        boards_dir = app_data.join("boards-system-tests");
+        boards_dir =
+            system_test_data_root().unwrap_or_else(|| app_data.join("boards-system-tests"));
         if let Some(run_id) = system_test_run_id() {
             boards_dir = boards_dir.join(run_id);
         }
@@ -46,6 +47,14 @@ fn system_test_run_id() -> Option<String> {
                 })
                 .collect::<String>()
         })
+}
+
+fn system_test_data_root() -> Option<PathBuf> {
+    std::env::var("TAURI_TEST_DATA_ROOT")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
 }
 
 pub(crate) fn default_board_data() -> String {

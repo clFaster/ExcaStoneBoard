@@ -65,11 +65,13 @@ pnpm run tauri dev
 
 ## System Tests (WebdriverIO + tauri-driver)
 
-Run the system smoke suite:
+Run the system suite:
 
 ```bash
 pnpm run test:system
 ```
+
+By default, each run uses an isolated data folder and cleans it up when the suite finishes.
 
 Prerequisites:
 
@@ -79,8 +81,18 @@ Prerequisites:
 Useful env overrides:
 
 - `TAURI_TEST_RUN_ID`: isolate each run's app data folder
+- `TAURI_TEST_REUSE_RUN_ID=1`: reuse a fixed `TAURI_TEST_RUN_ID` across runs
+- `TAURI_TEST_DATA_ROOT`: custom root folder for system-test data
+- `TAURI_TEST_KEEP_DATA=1`: keep run data after test completion (no cleanup)
 - `TAURI_DRIVER_PATH`: explicit path to `tauri-driver`
 - `TAURI_TEST_EXPORT_PATH` / `TAURI_TEST_IMPORT_PATH`: deterministic transfer file paths
+
+Current automated scenarios (`e2e/specs/system.e2e.mjs`):
+
+- Smoke flow (create board + open/close settings)
+- Board lifecycle (create, rename, duplicate)
+- Board persistence across app restart (`browser.reloadSession`)
+- Settings persistence across app window reload (`browser.refresh`)
 
 ## How It Works
 

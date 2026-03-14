@@ -12,8 +12,8 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"*.{js,ts,json,html}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"*.{js,ts,json,html}\"",
     "preview": "vite preview",
-    "test:system": "cross-env TAURI_TEST_MODE=1 wdio run e2e/wdio.conf.mjs",
-    "test:system:headed": "cross-env TAURI_TEST_MODE=1 WDIO_HEADLESS=0 wdio run e2e/wdio.conf.mjs",
+    "test:system": "cross-env TAURI_TEST_MODE=1 wdio run e2e/wdio.conf.mjs --maxInstances 1",
+    "test:system:headed": "cross-env TAURI_TEST_MODE=1 WDIO_HEADLESS=0 wdio run e2e/wdio.conf.mjs --maxInstances 1",
     "tauri": "tauri",
     "tauri:windows:build": "tauri-windows-bundle build"
   },

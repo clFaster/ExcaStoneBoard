@@ -31,9 +31,46 @@ function ensureSystemTestEnvironment() {
     process.env.TAURI_TEST_MODE = '1';
   }
 
-  if (!process.env.TAURI_TEST_RUN_ID) {
+  const reuseRunId = process.env.TAURI_TEST_REUSE_RUN_ID === '1';
+  if (!reuseRunId || !process.env.TAURI_TEST_RUN_ID) {
     process.env.TAURI_TEST_RUN_ID = `wdio-${Date.now()}`;
   }
+
+  if (!process.env.TAURI_TEST_DATA_ROOT) {
+    process.env.TAURI_TEST_DATA_ROOT = path.resolve(repoRoot, '.system-test-data');
+  }
+}
+
+function sanitizeRunId(value) {
+  return value
+    .split('')
+    .map((character) => (/^[a-zA-Z0-9_-]$/.test(character) ? character : '_'))
+    .join('');
+}
+
+function getCurrentRunDataDir() {
+  const dataRoot = process.env.TAURI_TEST_DATA_ROOT;
+  const runId = process.env.TAURI_TEST_RUN_ID;
+
+  if (!dataRoot || !runId) {
+    return null;
+  }
+
+  return path.join(dataRoot, sanitizeRunId(runId));
+}
+
+async function cleanupCurrentRunData() {
+  const runDataDir = getCurrentRunDataDir();
+  if (!runDataDir) {
+    return;
+  }
+
+  await fs.promises.rm(runDataDir, { recursive: true, force: true });
+}
+
+function shouldCleanupTestData() {
+  const keepData = process.env.TAURI_TEST_KEEP_DATA === '1';
+  return !keepData;
 }
 
 function buildDebugTauriApp() {
@@ -124,6 +161,10 @@ function waitForDriverReady(port, timeoutMs) {
 async function startTauriDriver() {
   verifyDriverPrerequisites();
 
+  if (tauriDriverProcess && tauriDriverProcess.exitCode === null) {
+    return;
+  }
+
   tauriDriverExitExpected = false;
   tauriDriverProcess = spawn(tauriDriverBinary, [], {
     stdio: 'inherit',
@@ -132,6 +173,12 @@ async function startTauriDriver() {
   });
 
   tauriDriverProcess.on('exit', (code) => {
+    tauriDriverProcess = undefined;
+
+    if (code === 0) {
+      return;
+    }
+
     if (!tauriDriverExitExpected) {
       console.error(`tauri-driver exited unexpectedly with code ${code}.`);
       process.exitCode = 1;
@@ -151,7 +198,7 @@ export const config = {
   runner: 'local',
   hostname: '127.0.0.1',
   port: tauriDriverPort,
-  specs: ['./specs/**/*.e2e.mjs'],
+  specs: ['./specs/system.e2e.mjs'],
   maxInstances: 1,
   capabilities: [
     {
@@ -161,8 +208,9 @@ export const config = {
       },
     },
   ],
-  logLevel: 'info',
+  logLevel: 'warn',
   bail: 0,
+  maxInstancesPerCapability: 1,
   waitforTimeout: 10000,
   connectionRetryTimeout: 120000,
   connectionRetryCount: 2,
@@ -173,8 +221,11 @@ export const config = {
     ui: 'bdd',
     timeout: 120000,
   },
-  onPrepare: () => {
+  onPrepare: async () => {
     ensureSystemTestEnvironment();
+    if (shouldCleanupTestData()) {
+      await cleanupCurrentRunData();
+    }
     try {
       verifyDriverPrerequisites();
     } catch (error) {
@@ -183,14 +234,15 @@ export const config = {
       process.exit(1);
     }
     buildDebugTauriApp();
-  },
-  beforeSession: async () => {
     await startTauriDriver();
-  },
-  afterSession: () => {
-    stopTauriDriver();
   },
   onComplete: () => {
     stopTauriDriver();
+    if (shouldCleanupTestData()) {
+      const runDataDir = getCurrentRunDataDir();
+      if (runDataDir) {
+        fs.rmSync(runDataDir, { recursive: true, force: true });
+      }
+    }
   },
 };
