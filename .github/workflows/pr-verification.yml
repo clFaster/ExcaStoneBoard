@@ -1,8 +1,6 @@
 name: PR Verification
 
 on:
-  push:
-    branches: ['**']
   pull_request:
 
 jobs:
