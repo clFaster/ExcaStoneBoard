@@ -131,8 +131,3 @@ export async function restartAppSession() {
   await browser.reloadSession();
   await waitForAppReady();
 }
-
-export async function reloadAppWindow() {
-  await browser.refresh();
-  await waitForAppReady();
-}

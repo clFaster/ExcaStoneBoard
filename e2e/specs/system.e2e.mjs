@@ -4,7 +4,6 @@ import {
   createBoard,
   duplicateBoard,
   openSettings,
-  reloadAppWindow,
   renameBoard,
   restartAppSession,
   setHideExportRow,
@@ -36,13 +35,15 @@ describe('System suite', () => {
 
   it('persistence: keeps created boards after app restart', async () => {
     const boardName = uniqueBoardName('Persistence Board');
+    const editedName = `${boardName} Edited`;
 
     await createBoard(boardName);
+    await renameBoard(boardName, editedName);
     await restartAppSession();
-    await waitForBoardVisible(boardName);
+    await waitForBoardVisible(editedName);
   });
 
-  it('settings persistence: keeps hide export row after app window reload', async () => {
+  it('settings persistence: keeps hide export row after app restart', async () => {
     await waitForAppReady();
     await openSettings();
     await setHideExportRow(true);
@@ -50,7 +51,7 @@ describe('System suite', () => {
 
     await assertExportRowHidden();
 
-    await reloadAppWindow();
+    await restartAppSession();
     await assertExportRowHidden();
 
     await openSettings();

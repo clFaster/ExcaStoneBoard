@@ -101,6 +101,11 @@ interface ImportBoardEntry extends BoardsExportEntry {
   index: number;
 }
 
+interface UiPreferences {
+  hide_export_row: boolean;
+  show_timestamps: boolean;
+}
+
 // =============================================================================
 // Utility Functions
 // =============================================================================
@@ -515,6 +520,7 @@ export function BoardList({
       return true;
     }
   });
+  const [uiPreferencesReady, setUiPreferencesReady] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importBoards, setImportBoards] = useState<ImportBoardEntry[]>([]);
   const [importSelection, setImportSelection] = useState<Record<string, boolean>>({});
@@ -645,6 +651,53 @@ export function BoardList({
       // ignore storage errors
     }
   }, [showTimestamps]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void invoke<UiPreferences>('get_ui_preferences')
+      .then((preferences) => {
+        if (cancelled) return;
+        setHideExportRow(Boolean(preferences.hide_export_row));
+        setShowTimestamps(Boolean(preferences.show_timestamps));
+        setUiPreferencesReady(true);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.warn('Failed to load UI preferences from backend:', error);
+        setUiPreferencesReady(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!uiPreferencesReady) {
+      return;
+    }
+
+    void invoke('set_ui_preference', {
+      key: 'hide_export_row',
+      value: hideExportRow,
+    }).catch((error) => {
+      console.warn('Failed to persist hide export row preference:', error);
+    });
+  }, [hideExportRow, uiPreferencesReady]);
+
+  useEffect(() => {
+    if (!uiPreferencesReady) {
+      return;
+    }
+
+    void invoke('set_ui_preference', {
+      key: 'show_timestamps',
+      value: showTimestamps,
+    }).catch((error) => {
+      console.warn('Failed to persist show timestamps preference:', error);
+    });
+  }, [showTimestamps, uiPreferencesReady]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {

@@ -92,7 +92,7 @@ Current automated scenarios (`e2e/specs/system.e2e.mjs`):
 - Smoke flow (create board + open/close settings)
 - Board lifecycle (create, rename, duplicate)
 - Board persistence across app restart (`browser.reloadSession`)
-- Settings persistence across app window reload (`browser.refresh`)
+- Settings persistence across app restart (`browser.reloadSession`)
 
 ## How It Works
 

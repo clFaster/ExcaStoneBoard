@@ -1,5 +1,6 @@
 use chrono::Utc;
 use rusqlite::params;
+use serde::Serialize;
 use serde_json::Value as JsonValue;
 use std::collections::HashSet;
 use std::fs;
@@ -15,11 +16,54 @@ use crate::models::{
     Board, BoardListItem, BoardsExportEntry, BoardsExportFile, BoardsImportResult, BoardsIndex,
 };
 
+const ACTIVE_BOARD_SETTING_KEY: &str = "active_board_id";
+const HIDE_EXPORT_ROW_SETTING_KEY: &str = "ui.hide_export_row";
+const SHOW_TIMESTAMPS_SETTING_KEY: &str = "ui.show_timestamps";
+
+#[derive(Serialize)]
+pub(crate) struct UiPreferences {
+    hide_export_row: bool,
+    show_timestamps: bool,
+}
+
 #[tauri::command]
 pub(crate) fn get_boards(app: AppHandle) -> Result<BoardsIndex, String> {
     let conn = open_db(&app)?;
     let index = load_boards_index_from_db(&conn)?;
     normalize_active_board_id(&conn, index)
+}
+
+#[tauri::command]
+pub(crate) fn get_ui_preferences(app: AppHandle) -> Result<UiPreferences, String> {
+    let conn = open_db(&app)?;
+    let hide_export_row = parse_boolean_setting(
+        get_setting(&conn, HIDE_EXPORT_ROW_SETTING_KEY)?,
+        false,
+        HIDE_EXPORT_ROW_SETTING_KEY,
+    )?;
+    let show_timestamps = parse_boolean_setting(
+        get_setting(&conn, SHOW_TIMESTAMPS_SETTING_KEY)?,
+        true,
+        SHOW_TIMESTAMPS_SETTING_KEY,
+    )?;
+
+    Ok(UiPreferences {
+        hide_export_row,
+        show_timestamps,
+    })
+}
+
+#[tauri::command]
+pub(crate) fn set_ui_preference(app: AppHandle, key: String, value: bool) -> Result<(), String> {
+    let setting_key = match key.as_str() {
+        "hide_export_row" => HIDE_EXPORT_ROW_SETTING_KEY,
+        "show_timestamps" => SHOW_TIMESTAMPS_SETTING_KEY,
+        _ => return Err("Invalid UI preference key".to_string()),
+    };
+
+    let conn = open_db(&app)?;
+    let setting_value = if value { "1" } else { "0" };
+    set_setting(&conn, setting_key, Some(setting_value))
 }
 
 #[tauri::command]
@@ -40,8 +84,8 @@ pub(crate) fn create_board(app: AppHandle, name: String) -> Result<Board, String
     insert_board_with_data(&tx, &board, &board_data)?;
 
     tx.execute(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_board_id', ?1)",
-        params![board.id],
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+        params![ACTIVE_BOARD_SETTING_KEY, board.id],
     )
     .map_err(|e| e.to_string())?;
 
@@ -107,10 +151,10 @@ pub(crate) fn delete_board(app: AppHandle, board_id: String) -> Result<(), Strin
     )
     .map_err(|e| e.to_string())?;
 
-    let active_id = get_setting(&tx, "active_board_id")?;
+    let active_id = get_setting(&tx, ACTIVE_BOARD_SETTING_KEY)?;
     if active_id.as_deref() == Some(&board_id) {
         let next_id = first_board_id_from_db(&tx)?;
-        set_setting(&tx, "active_board_id", next_id.as_deref())?;
+        set_setting(&tx, ACTIVE_BOARD_SETTING_KEY, next_id.as_deref())?;
     }
 
     tx.commit().map_err(|e| e.to_string())?;
@@ -123,7 +167,7 @@ pub(crate) fn set_active_board(app: AppHandle, board_id: String) -> Result<(), S
     if !board_id_exists(&conn, &board_id)? {
         return Err("Board not found".to_string());
     }
-    set_setting(&conn, "active_board_id", Some(&board_id))?;
+    set_setting(&conn, ACTIVE_BOARD_SETTING_KEY, Some(&board_id))?;
     Ok(())
 }
 
@@ -262,7 +306,7 @@ pub(crate) fn set_boards_index(
 
     let mut index = BoardsIndex {
         items,
-        active_board_id: get_setting(&tx, "active_board_id")?,
+        active_board_id: get_setting(&tx, ACTIVE_BOARD_SETTING_KEY)?,
     };
 
     if let Some(active_id) = index.active_board_id.clone() {
@@ -273,7 +317,11 @@ pub(crate) fn set_boards_index(
         index.active_board_id = first_board_id(&index.items);
     }
 
-    set_setting(&tx, "active_board_id", index.active_board_id.as_deref())?;
+    set_setting(
+        &tx,
+        ACTIVE_BOARD_SETTING_KEY,
+        index.active_board_id.as_deref(),
+    )?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(index)
 }
@@ -325,7 +373,7 @@ pub(crate) fn import_boards(
         serde_json::from_str(&payload).map_err(|e| e.to_string())?;
 
     let conn = open_db(&app)?;
-    let active_before = get_setting(&conn, "active_board_id")?;
+    let active_before = get_setting(&conn, ACTIVE_BOARD_SETTING_KEY)?;
 
     let (existing_ids, mut used_names) = load_existing_board_ids_and_names(&conn)?;
     let selected: HashSet<usize> = selected_indices.into_iter().collect();
@@ -423,6 +471,18 @@ fn env_path_override(env_key: &str) -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn parse_boolean_setting(value: Option<String>, default: bool, key: &str) -> Result<bool, String> {
+    let Some(raw) = value else {
+        return Ok(default);
+    };
+
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" => Ok(true),
+        "0" | "false" => Ok(false),
+        _ => Err(format!("Invalid boolean setting value for key '{key}'")),
+    }
 }
 
 fn insert_board_with_data(
@@ -544,7 +604,7 @@ fn restore_active_board(
     active_before: Option<String>,
 ) -> Result<(), String> {
     if let Some(active_id) = active_before {
-        set_setting(conn, "active_board_id", Some(&active_id))?;
+        set_setting(conn, ACTIVE_BOARD_SETTING_KEY, Some(&active_id))?;
     }
     Ok(())
 }

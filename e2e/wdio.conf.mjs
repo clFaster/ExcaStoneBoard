@@ -65,7 +65,46 @@ async function cleanupCurrentRunData() {
     return;
   }
 
-  await fs.promises.rm(runDataDir, { recursive: true, force: true });
+  await removeDirectoryWithRetries(runDataDir);
+}
+
+async function cleanupStaleRunData() {
+  const dataRoot = process.env.TAURI_TEST_DATA_ROOT;
+  const currentRunDataDir = getCurrentRunDataDir();
+  const currentRunFolder = currentRunDataDir ? path.basename(currentRunDataDir) : null;
+
+  if (!dataRoot) {
+    return;
+  }
+
+  let entries;
+  try {
+    entries = await fs.promises.readdir(dataRoot, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  const staleRunDirs = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((name) => name.startsWith('wdio-') && name !== currentRunFolder)
+    .map((name) => path.join(dataRoot, name));
+
+  await Promise.all(staleRunDirs.map((directory) => removeDirectoryWithRetries(directory)));
+}
+
+async function removeDirectoryWithRetries(directory) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await fs.promises.rm(directory, { recursive: true, force: true });
+      return;
+    } catch {
+      if (attempt === 4) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
 }
 
 function shouldCleanupTestData() {
@@ -224,6 +263,7 @@ export const config = {
   onPrepare: async () => {
     ensureSystemTestEnvironment();
     if (shouldCleanupTestData()) {
+      await cleanupStaleRunData();
       await cleanupCurrentRunData();
     }
     try {
@@ -236,13 +276,10 @@ export const config = {
     buildDebugTauriApp();
     await startTauriDriver();
   },
-  onComplete: () => {
+  onComplete: async () => {
     stopTauriDriver();
     if (shouldCleanupTestData()) {
-      const runDataDir = getCurrentRunDataDir();
-      if (runDataDir) {
-        fs.rmSync(runDataDir, { recursive: true, force: true });
-      }
+      await cleanupCurrentRunData();
     }
   },
 };
