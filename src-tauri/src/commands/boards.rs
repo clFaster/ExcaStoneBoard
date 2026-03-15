@@ -163,56 +163,18 @@ pub(crate) fn set_boards_index(
     let mut conn = open_db(&app)?;
     let tx = conn.transaction().map_err(|error| error.to_string())?;
 
-    tx.execute("DELETE FROM index_items", [])
-        .map_err(|error| error.to_string())?;
-    tx.execute("DELETE FROM folder_items", [])
-        .map_err(|error| error.to_string())?;
-    tx.execute("DELETE FROM folders", [])
-        .map_err(|error| error.to_string())?;
+    clear_index_tables(&tx)?;
 
     for (position, item) in items.iter().enumerate() {
-        match item {
-            BoardListItem::Board(board) => {
-                tx.execute(
-                    "INSERT INTO index_items (position, item_type, item_id) VALUES (?1, 'board', ?2)",
-                    params![position as i64, board.id],
-                )
-                .map_err(|error| error.to_string())?;
-            }
-            BoardListItem::Folder(folder) => {
-                tx.execute(
-                    "INSERT OR REPLACE INTO folders (id, name) VALUES (?1, ?2)",
-                    params![folder.id, folder.name],
-                )
-                .map_err(|error| error.to_string())?;
-                tx.execute(
-                    "INSERT INTO index_items (position, item_type, item_id) VALUES (?1, 'folder', ?2)",
-                    params![position as i64, folder.id],
-                )
-                .map_err(|error| error.to_string())?;
-                for (folder_pos, board) in folder.items.iter().enumerate() {
-                    tx.execute(
-                        "INSERT INTO folder_items (folder_id, board_id, position) VALUES (?1, ?2, ?3)",
-                        params![folder.id, board.id, folder_pos as i64],
-                    )
-                    .map_err(|error| error.to_string())?;
-                }
-            }
-        }
+        persist_index_item(&tx, position as i64, item)?;
     }
 
-    let mut index = BoardsIndex {
+    let active_board_id = get_setting(&tx, ACTIVE_BOARD_SETTING_KEY)?;
+    let normalized_active_board_id = resolve_active_board_id(&items, active_board_id);
+    let index = BoardsIndex {
         items,
-        active_board_id: get_setting(&tx, ACTIVE_BOARD_SETTING_KEY)?,
+        active_board_id: normalized_active_board_id,
     };
-
-    if let Some(active_id) = index.active_board_id.clone() {
-        if !board_exists(&index.items, &active_id) {
-            index.active_board_id = first_board_id(&index.items);
-        }
-    } else {
-        index.active_board_id = first_board_id(&index.items);
-    }
 
     set_setting(
         &tx,
@@ -221,6 +183,71 @@ pub(crate) fn set_boards_index(
     )?;
     tx.commit().map_err(|error| error.to_string())?;
     Ok(index)
+}
+
+fn clear_index_tables(tx: &rusqlite::Transaction<'_>) -> Result<(), String> {
+    tx.execute("DELETE FROM index_items", [])
+        .map_err(|error| error.to_string())?;
+    tx.execute("DELETE FROM folder_items", [])
+        .map_err(|error| error.to_string())?;
+    tx.execute("DELETE FROM folders", [])
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn persist_index_item(
+    tx: &rusqlite::Transaction<'_>,
+    position: i64,
+    item: &BoardListItem,
+) -> Result<(), String> {
+    match item {
+        BoardListItem::Board(board) => {
+            tx.execute(
+                "INSERT INTO index_items (position, item_type, item_id) VALUES (?1, 'board', ?2)",
+                params![position, &board.id],
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(())
+        }
+        BoardListItem::Folder(folder) => persist_folder_item(tx, position, folder),
+    }
+}
+
+fn persist_folder_item(
+    tx: &rusqlite::Transaction<'_>,
+    position: i64,
+    folder: &crate::models::BoardFolder,
+) -> Result<(), String> {
+    tx.execute(
+        "INSERT OR REPLACE INTO folders (id, name) VALUES (?1, ?2)",
+        params![&folder.id, &folder.name],
+    )
+    .map_err(|error| error.to_string())?;
+    tx.execute(
+        "INSERT INTO index_items (position, item_type, item_id) VALUES (?1, 'folder', ?2)",
+        params![position, &folder.id],
+    )
+    .map_err(|error| error.to_string())?;
+
+    for (folder_position, board) in folder.items.iter().enumerate() {
+        tx.execute(
+            "INSERT INTO folder_items (folder_id, board_id, position) VALUES (?1, ?2, ?3)",
+            params![&folder.id, &board.id, folder_position as i64],
+        )
+        .map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn resolve_active_board_id(
+    items: &[BoardListItem],
+    active_board_id: Option<String>,
+) -> Option<String> {
+    match active_board_id {
+        Some(active_id) if board_exists(items, &active_id) => Some(active_id),
+        _ => first_board_id(items),
+    }
 }
 
 fn insert_board_with_data(
