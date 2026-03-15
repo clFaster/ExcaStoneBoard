@@ -177,25 +177,32 @@ pub(crate) fn first_board_id_from_db(conn: &Connection) -> Result<Option<String>
     while let Some(row) = rows.next().map_err(|e| e.to_string())? {
         let item_type: String = row.get(0).map_err(|e| e.to_string())?;
         let item_id: String = row.get(1).map_err(|e| e.to_string())?;
-        if item_type == "board" {
-            return Ok(Some(item_id));
-        }
-        if item_type == "folder" {
-            let board_id: Option<String> = conn
-                .query_row(
-                    "SELECT board_id FROM folder_items WHERE folder_id = ?1 ORDER BY position ASC LIMIT 1",
-                    params![item_id],
-                    |row| row.get(0),
-                )
-                .optional()
-                .map_err(|e| e.to_string())?;
-            if board_id.is_some() {
-                return Ok(board_id);
-            }
+        let board_id = board_id_from_index_item(conn, &item_type, &item_id)?;
+        if board_id.is_some() {
+            return Ok(board_id);
         }
     }
 
     Ok(None)
+}
+
+fn board_id_from_index_item(
+    conn: &Connection,
+    item_type: &str,
+    item_id: &str,
+) -> Result<Option<String>, String> {
+    match item_type {
+        "board" => Ok(Some(item_id.to_string())),
+        "folder" => conn
+            .query_row(
+                "SELECT board_id FROM folder_items WHERE folder_id = ?1 ORDER BY position ASC LIMIT 1",
+                params![item_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string()),
+        _ => Ok(None),
+    }
 }
 
 fn load_folder_boards(
@@ -220,6 +227,18 @@ fn load_folder_boards(
 }
 
 pub(crate) fn load_boards_index_from_db(conn: &Connection) -> Result<BoardsIndex, String> {
+    let boards = load_boards_map(conn)?;
+    let folder_names = load_folder_names_map(conn)?;
+    let items = load_index_items(conn, &boards, &folder_names)?;
+    let active_board_id = get_setting(conn, "active_board_id")?;
+
+    Ok(BoardsIndex {
+        items,
+        active_board_id,
+    })
+}
+
+fn load_boards_map(conn: &Connection) -> Result<HashMap<String, Board>, String> {
     let mut boards = HashMap::new();
     let mut stmt = conn
         .prepare(
@@ -242,6 +261,10 @@ pub(crate) fn load_boards_index_from_db(conn: &Connection) -> Result<BoardsIndex
         boards.insert(board.id.clone(), board);
     }
 
+    Ok(boards)
+}
+
+fn load_folder_names_map(conn: &Connection) -> Result<HashMap<String, String>, String> {
     let mut folder_names = HashMap::new();
     let mut stmt = conn
         .prepare("SELECT id, name FROM folders")
@@ -253,41 +276,70 @@ pub(crate) fn load_boards_index_from_db(conn: &Connection) -> Result<BoardsIndex
         folder_names.insert(id, name);
     }
 
+    Ok(folder_names)
+}
+
+fn load_index_items(
+    conn: &Connection,
+    boards: &HashMap<String, Board>,
+    folder_names: &HashMap<String, String>,
+) -> Result<Vec<BoardListItem>, String> {
     let mut items = Vec::new();
     let mut stmt = conn
         .prepare("SELECT item_type, item_id FROM index_items ORDER BY position ASC")
         .map_err(|e| e.to_string())?;
     let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
+
     while let Some(row) = rows.next().map_err(|e| e.to_string())? {
         let item_type: String = row.get(0).map_err(|e| e.to_string())?;
         let item_id: String = row.get(1).map_err(|e| e.to_string())?;
-        match item_type.as_str() {
-            "board" => {
-                if let Some(board) = boards.get(&item_id) {
-                    items.push(BoardListItem::Board(board.clone()));
-                }
-            }
-            "folder" => {
-                if let Some(name) = folder_names.get(&item_id) {
-                    let folder_items = load_folder_boards(conn, &item_id, &boards)?;
-                    if !folder_items.is_empty() {
-                        items.push(BoardListItem::Folder(BoardFolder {
-                            id: item_id,
-                            name: name.clone(),
-                            items: folder_items,
-                        }));
-                    }
-                }
-            }
-            _ => {}
+
+        if let Some(item) =
+            board_list_item_from_index_row(conn, &item_type, &item_id, boards, folder_names)?
+        {
+            items.push(item);
         }
     }
 
-    let active_board_id = get_setting(conn, "active_board_id")?;
-    Ok(BoardsIndex {
-        items,
-        active_board_id,
-    })
+    Ok(items)
+}
+
+fn board_list_item_from_index_row(
+    conn: &Connection,
+    item_type: &str,
+    item_id: &str,
+    boards: &HashMap<String, Board>,
+    folder_names: &HashMap<String, String>,
+) -> Result<Option<BoardListItem>, String> {
+    match item_type {
+        "board" => Ok(boards
+            .get(item_id)
+            .map(|board| BoardListItem::Board(board.clone()))),
+        "folder" => folder_item_from_index_row(conn, item_id, boards, folder_names),
+        _ => Ok(None),
+    }
+}
+
+fn folder_item_from_index_row(
+    conn: &Connection,
+    folder_id: &str,
+    boards: &HashMap<String, Board>,
+    folder_names: &HashMap<String, String>,
+) -> Result<Option<BoardListItem>, String> {
+    let Some(name) = folder_names.get(folder_id) else {
+        return Ok(None);
+    };
+
+    let folder_items = load_folder_boards(conn, folder_id, boards)?;
+    if folder_items.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(BoardListItem::Folder(BoardFolder {
+        id: folder_id.to_string(),
+        name: name.clone(),
+        items: folder_items,
+    })))
 }
 
 pub(crate) fn normalize_active_board_id(

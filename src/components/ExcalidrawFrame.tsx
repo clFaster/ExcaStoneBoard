@@ -283,14 +283,12 @@ const useExcalidrawExports = (
   return { exportPng, copyPng, exportSvg };
 };
 
-const useExcalidrawPersistence = (
+const useExcalidrawDataPersistence = (
   excalidrawApiRef: ExcalidrawApiRef,
   boardId: string | null,
   onDataChange: (boardId: string, data: ExcalidrawData) => Promise<void>,
-  onThumbnailGenerated: (boardId: string, dataUrl: string) => void,
 ) => {
   const saveTimeoutRef = useRef<number | null>(null);
-  const thumbnailTimeoutRef = useRef<number | null>(null);
   const lastSavedDataRef = useRef<string | null>(null);
 
   const collectData = useCallback((): ExcalidrawData | null => {
@@ -336,10 +334,6 @@ const useExcalidrawPersistence = (
   const scheduleSave = useCallback(() => {
     clearTimer(saveTimeoutRef);
     saveTimeoutRef.current = window.setTimeout(() => {
-      if (!boardId) {
-        return;
-      }
-
       const data = collectData();
       if (!data) {
         return;
@@ -347,24 +341,58 @@ const useExcalidrawPersistence = (
 
       void saveData(data);
     }, SAVE_DEBOUNCE_MS);
-  }, [boardId, collectData, saveData]);
+  }, [collectData, saveData]);
+
+  useEffect(
+    () => () => {
+      clearTimer(saveTimeoutRef);
+    },
+    [],
+  );
+
+  return { flushSave, scheduleSave };
+};
+
+interface ThumbnailSource {
+  boardId: string;
+  snapshot: SceneSnapshot;
+}
+
+const getThumbnailSource = (
+  excalidrawApiRef: ExcalidrawApiRef,
+  boardId: string | null,
+): ThumbnailSource | null => {
+  const api = excalidrawApiRef.current;
+  if (!api || !boardId) {
+    return null;
+  }
+
+  const snapshot = getSceneSnapshot(api);
+  if (snapshot.elements.length === 0) {
+    return null;
+  }
+
+  return { boardId, snapshot };
+};
+
+const useExcalidrawThumbnailPersistence = (
+  excalidrawApiRef: ExcalidrawApiRef,
+  boardId: string | null,
+  onThumbnailGenerated: (boardId: string, dataUrl: string) => void,
+) => {
+  const thumbnailTimeoutRef = useRef<number | null>(null);
 
   const generateThumbnail = useCallback(async () => {
-    const api = excalidrawApiRef.current;
-    if (!api || !boardId) {
-      return;
-    }
-
-    const snapshot = getSceneSnapshot(api);
-    if (snapshot.elements.length === 0) {
+    const source = getThumbnailSource(excalidrawApiRef, boardId);
+    if (!source) {
       return;
     }
 
     try {
-      const blob = await createThumbnailBlob(snapshot);
+      const blob = await createThumbnailBlob(source.snapshot);
       const dataUrl = await blobToThumbnailDataUrl(blob);
       if (dataUrl) {
-        onThumbnailGenerated(boardId, dataUrl);
+        onThumbnailGenerated(source.boardId, dataUrl);
       }
     } catch (error) {
       console.error('Failed to generate thumbnail:', error);
@@ -385,13 +413,12 @@ const useExcalidrawPersistence = (
 
   useEffect(
     () => () => {
-      clearTimer(saveTimeoutRef);
       clearTimer(thumbnailTimeoutRef);
     },
     [],
   );
 
-  return { flushSave, flushThumbnail, scheduleSave, scheduleThumbnail };
+  return { flushThumbnail, scheduleThumbnail };
 };
 
 function EmptyBoardPlaceholder() {
@@ -428,10 +455,14 @@ export const ExcalidrawFrame = forwardRef<ExcalidrawFrameHandle, ExcalidrawFrame
       boardId,
       boardName,
     );
-    const { flushSave, flushThumbnail, scheduleSave, scheduleThumbnail } = useExcalidrawPersistence(
+    const { flushSave, scheduleSave } = useExcalidrawDataPersistence(
       excalidrawApiRef,
       boardId,
       onDataChange,
+    );
+    const { flushThumbnail, scheduleThumbnail } = useExcalidrawThumbnailPersistence(
+      excalidrawApiRef,
+      boardId,
       onThumbnailGenerated,
     );
 
