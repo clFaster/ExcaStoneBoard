@@ -185,10 +185,13 @@ const useBoardsTransferActions = (
     setSettingsError(null);
 
     try {
-      const filePath = await save({
-        defaultPath: buildBoardsExportName(),
-        filters: [{ name: 'Boards export', extensions: ['json'] }],
-      });
+      const testExportPath = await invoke<string | null>('get_system_test_export_path');
+      const filePath = testExportPath
+        ? testExportPath
+        : await save({
+            defaultPath: buildBoardsExportName(),
+            filters: [{ name: 'Boards export', extensions: ['json'] }],
+          });
 
       if (!filePath) {
         return;

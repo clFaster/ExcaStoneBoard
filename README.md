@@ -47,6 +47,53 @@ npm run tauri build
 pnpm run tauri:windows:build --arch "x64,arm64" --runner pnpm
 ```
 
+## System Test Mode
+
+For deterministic system-test runs, you can enable test mode:
+
+- `TAURI_TEST_MODE=1` enables deterministic import/export paths and test data isolation.
+- `TAURI_TEST_RUN_ID` (optional) isolates each run into its own data subdirectory.
+- `TAURI_TEST_EXPORT_PATH` and `TAURI_TEST_IMPORT_PATH` (optional) override deterministic file paths.
+
+Windows PowerShell example:
+
+```powershell
+$env:TAURI_TEST_MODE = "1"
+$env:TAURI_TEST_RUN_ID = "local-smoke"
+pnpm run tauri dev
+```
+
+## System Tests (WebdriverIO + tauri-driver)
+
+Run the system suite:
+
+```bash
+pnpm run test:system
+```
+
+By default, each run uses an isolated data folder and cleans it up when the suite finishes.
+
+Prerequisites:
+
+- Install `tauri-driver`: `cargo install tauri-driver --locked`
+- On Windows, ensure `msedgedriver` is installed and version-matched to Edge
+
+Useful env overrides:
+
+- `TAURI_TEST_RUN_ID`: isolate each run's app data folder
+- `TAURI_TEST_REUSE_RUN_ID=1`: reuse a fixed `TAURI_TEST_RUN_ID` across runs
+- `TAURI_TEST_DATA_ROOT`: custom root folder for system-test data
+- `TAURI_TEST_KEEP_DATA=1`: keep run data after test completion (no cleanup)
+- `TAURI_DRIVER_PATH`: explicit path to `tauri-driver`
+- `TAURI_TEST_EXPORT_PATH` / `TAURI_TEST_IMPORT_PATH`: deterministic transfer file paths
+
+Current automated scenarios (`e2e/specs/system.e2e.mjs`):
+
+- Smoke flow (create board + open/close settings)
+- Board lifecycle (create, rename, duplicate)
+- Board persistence across app restart (`browser.reloadSession`)
+- Settings persistence across app restart (`browser.reloadSession`)
+
 ## How It Works
 
 **Board Management**: The app stores board metadata and data in your system's app data directory
