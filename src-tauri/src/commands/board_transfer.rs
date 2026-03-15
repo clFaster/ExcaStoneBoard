@@ -24,21 +24,8 @@ pub(crate) fn export_boards(app: AppHandle, file_path: String) -> Result<(), Str
     let mut boards = Vec::new();
     let mut seen = HashSet::new();
 
-    for item in index.items.iter() {
-        match item {
-            BoardListItem::Board(board) => {
-                if seen.insert(board.id.clone()) {
-                    boards.push(build_export_entry(&conn, board)?);
-                }
-            }
-            BoardListItem::Folder(folder) => {
-                for board in folder.items.iter() {
-                    if seen.insert(board.id.clone()) {
-                        boards.push(build_export_entry(&conn, board)?);
-                    }
-                }
-            }
-        }
+    for item in &index.items {
+        export_item_boards(&conn, item, &mut seen, &mut boards)?;
     }
 
     let export_file = BoardsExportFile {
@@ -76,30 +63,82 @@ pub(crate) fn import_boards(
             continue;
         }
 
-        let final_name = resolve_import_name(entry, &seen_ids, &used_names);
-
-        let created = match create_board(app.clone(), final_name.clone()) {
-            Ok(board) => board,
-            Err(_) => {
-                skipped += 1;
-                continue;
-            }
-        };
-
-        if let Some(data_value) = entry.data.clone() {
-            if !data_value.is_null() {
-                let data_str = data_value.to_string();
-                save_board_data(app.clone(), created.id.clone(), data_str)?;
-            }
+        let did_import = import_selected_entry(&app, entry, &mut seen_ids, &mut used_names)?;
+        if did_import {
+            imported += 1;
+        } else {
+            skipped += 1;
         }
-
-        register_imported_identity(entry, &final_name, &mut seen_ids, &mut used_names);
-        imported += 1;
     }
 
     restore_active_board(&conn, active_before)?;
 
     Ok(BoardsImportResult { imported, skipped })
+}
+
+fn export_item_boards(
+    conn: &rusqlite::Connection,
+    item: &BoardListItem,
+    seen: &mut HashSet<String>,
+    export_entries: &mut Vec<BoardsExportEntry>,
+) -> Result<(), String> {
+    match item {
+        BoardListItem::Board(board) => export_board_if_new(conn, board, seen, export_entries),
+        BoardListItem::Folder(folder) => {
+            for board in &folder.items {
+                export_board_if_new(conn, board, seen, export_entries)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn export_board_if_new(
+    conn: &rusqlite::Connection,
+    board: &Board,
+    seen: &mut HashSet<String>,
+    export_entries: &mut Vec<BoardsExportEntry>,
+) -> Result<(), String> {
+    if !seen.insert(board.id.clone()) {
+        return Ok(());
+    }
+
+    export_entries.push(build_export_entry(conn, board)?);
+    Ok(())
+}
+
+fn import_selected_entry(
+    app: &AppHandle,
+    entry: &BoardsExportEntry,
+    seen_ids: &mut HashSet<String>,
+    used_names: &mut HashSet<String>,
+) -> Result<bool, String> {
+    let final_name = resolve_import_name(entry, seen_ids, used_names);
+    let created = match create_board(app.clone(), final_name.clone()) {
+        Ok(board) => board,
+        Err(_) => return Ok(false),
+    };
+
+    persist_imported_board_data(app.clone(), &created.id, entry)?;
+    register_imported_identity(entry, &final_name, seen_ids, used_names);
+    Ok(true)
+}
+
+fn persist_imported_board_data(
+    app: AppHandle,
+    created_board_id: &str,
+    entry: &BoardsExportEntry,
+) -> Result<(), String> {
+    let Some(data_value) = entry.data.as_ref() else {
+        return Ok(());
+    };
+
+    if data_value.is_null() {
+        return Ok(());
+    }
+
+    let data_str = data_value.to_string();
+    save_board_data(app, created_board_id.to_string(), data_str)
 }
 
 fn load_existing_board_ids_and_names(

@@ -12,6 +12,8 @@ use crate::models::{Board, BoardListItem, BoardsIndex};
 
 const ACTIVE_BOARD_SETTING_KEY: &str = "active_board_id";
 
+struct BoardDataPayload(String);
+
 #[tauri::command]
 pub(crate) fn get_boards(app: AppHandle) -> Result<BoardsIndex, String> {
     let conn = open_db(&app)?;
@@ -33,7 +35,7 @@ pub(crate) fn create_board(app: AppHandle, name: String) -> Result<Board, String
     };
 
     let tx = conn.transaction().map_err(|error| error.to_string())?;
-    let board_data = default_board_data();
+    let board_data = BoardDataPayload(default_board_data());
     insert_board_with_data(&tx, &board, &board_data)?;
 
     tx.execute(
@@ -132,7 +134,9 @@ pub(crate) fn duplicate_board(
 ) -> Result<Board, String> {
     let mut conn = open_db(&app)?;
     let original = get_board_by_id(&conn, &board_id)?;
-    let original_data = load_board_data_value(&conn, &board_id)?.unwrap_or_else(default_board_data);
+    let original_data = BoardDataPayload(
+        load_board_data_value(&conn, &board_id)?.unwrap_or_else(default_board_data),
+    );
 
     let now = Utc::now();
     let new_board = Board {
@@ -219,10 +223,10 @@ pub(crate) fn set_boards_index(
     Ok(index)
 }
 
-pub(crate) fn insert_board_with_data(
+fn insert_board_with_data(
     tx: &rusqlite::Transaction<'_>,
     board: &Board,
-    data: &str,
+    data: &BoardDataPayload,
 ) -> Result<(), String> {
     tx.execute(
         "INSERT INTO boards (id, name, created_at, updated_at, collaboration_link, thumbnail)
@@ -240,7 +244,7 @@ pub(crate) fn insert_board_with_data(
 
     tx.execute(
         "INSERT INTO board_data (board_id, data) VALUES (?1, ?2)",
-        params![&board.id, data],
+        params![&board.id, &data.0],
     )
     .map_err(|error| error.to_string())?;
 
