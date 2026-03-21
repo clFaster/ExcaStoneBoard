@@ -136,6 +136,7 @@ jobs:
   publish-app:
     runs-on: windows-latest
     needs: prepare-release
+    environment: stable
     timeout-minutes: 120
     permissions:
       contents: write
@@ -216,6 +217,7 @@ jobs:
   publish-linux:
     runs-on: ubuntu-latest
     needs: prepare-release
+    environment: stable
     timeout-minutes: 60
     permissions:
       contents: write
