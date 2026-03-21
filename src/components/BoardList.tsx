@@ -729,6 +729,17 @@ export function BoardList({
     };
   }, []);
 
+  useEffect(() => {
+    const handleOpenSettings = () => {
+      setSettingsOpen(true);
+    };
+
+    window.addEventListener('boardlist:open-settings', handleOpenSettings);
+    return () => {
+      window.removeEventListener('boardlist:open-settings', handleOpenSettings);
+    };
+  }, []);
+
   // Cleanup folders (convert single-item folders to boards, remove empty ones)
   useEffect(() => {
     const normalized = cleanupFolders(items);

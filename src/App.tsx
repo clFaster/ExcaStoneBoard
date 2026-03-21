@@ -1,11 +1,24 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import type { RefObject } from 'react';
 import { BoardList } from './components/BoardList';
+import { CommandPalette, type CommandPaletteItem } from './components/CommandPalette';
 import type { ExcalidrawData, ExcalidrawFrameHandle } from './components/ExcalidrawFrame';
+import type { BoardListItem } from './types/board';
 import { useAppController } from './hooks/useAppController';
 import './App.css';
 
 const ExcalidrawFrame = lazy(() => import('./components/ExcalidrawFrame'));
+
+const flattenBoardsForPalette = (items: BoardListItem[]) =>
+  items.flatMap((item) =>
+    item.type === 'board'
+      ? [{ boardId: item.id, boardName: item.name, folderName: null as string | null }]
+      : item.items.map((board) => ({
+          boardId: board.id,
+          boardName: board.name,
+          folderName: item.name,
+        })),
+  );
 
 function FullScreenLoading({ message }: { message: string }) {
   return (
@@ -110,6 +123,114 @@ function App() {
     toggleSidebar,
   } = useAppController();
 
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+
+  const allBoards = useMemo(() => flattenBoardsForPalette(items), [items]);
+
+  const closeCommandPalette = useCallback(() => {
+    setCommandPaletteOpen(false);
+  }, []);
+
+  useEffect(() => {
+    const handleWindowKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'p') {
+        event.preventDefault();
+        setCommandPaletteOpen((prev) => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleWindowKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleWindowKeyDown);
+    };
+  }, []);
+
+  const requestOpenSettings = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('boardlist:open-settings'));
+  }, []);
+
+  const commandPaletteCommands = useMemo<CommandPaletteItem[]>(() => {
+    const exportDisabledForCommands = !activeBoardId || boardDataLoading || exportBusy;
+
+    const commands: CommandPaletteItem[] = [
+      {
+        id: 'create-board',
+        label: 'Create new board',
+        description: 'Add an empty board and make it active',
+        keywords: 'new board create add',
+        shortcut: 'N',
+        action: async () => {
+          await createBoard('Untitled board');
+        },
+      },
+      {
+        id: 'open-settings',
+        label: 'Open settings',
+        description: 'Manage export, import, and display preferences',
+        keywords: 'settings preferences options',
+        shortcut: ',',
+        action: requestOpenSettings,
+      },
+      {
+        id: 'toggle-sidebar',
+        label: sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar',
+        description: 'Toggle the board sidebar visibility',
+        keywords: 'sidebar collapse expand',
+        shortcut: 'B',
+        action: toggleSidebar,
+      },
+      {
+        id: 'export-png',
+        label: 'Export active board as PNG',
+        description: 'Save a PNG image from the active board',
+        keywords: 'export png image',
+        disabled: exportDisabledForCommands,
+        action: handleExportPng,
+      },
+      {
+        id: 'copy-png',
+        label: 'Copy active board as PNG',
+        description: 'Copy a PNG image from the active board',
+        keywords: 'copy png image clipboard',
+        disabled: exportDisabledForCommands,
+        action: handleCopyPng,
+      },
+      {
+        id: 'export-svg',
+        label: 'Export active board as SVG',
+        description: 'Save a vector SVG from the active board',
+        keywords: 'export svg vector',
+        disabled: exportDisabledForCommands,
+        action: handleExportSvg,
+      },
+    ];
+
+    const openBoardCommands = allBoards.map<CommandPaletteItem>((entry) => ({
+      id: `open-board-${entry.boardId}`,
+      label: `Open board: ${entry.boardName}`,
+      description: entry.folderName ? `Folder: ${entry.folderName}` : 'Top-level board',
+      keywords: `open board ${entry.boardName} ${entry.folderName ?? ''}`,
+      action: async () => {
+        await handleSelectBoard(entry.boardId);
+      },
+    }));
+
+    return [...commands, ...openBoardCommands];
+  }, [
+    activeBoardId,
+    allBoards,
+    boardDataLoading,
+    createBoard,
+    exportBusy,
+    handleCopyPng,
+    handleExportPng,
+    handleExportSvg,
+    handleSelectBoard,
+    requestOpenSettings,
+    sidebarCollapsed,
+    toggleSidebar,
+  ]);
+
   if (loading) {
     return <FullScreenLoading message="Loading boards..." />;
   }
@@ -148,6 +269,9 @@ function App() {
         currentBoardData={currentBoardData}
         excalidrawRef={excalidrawRef}
       />
+      {commandPaletteOpen ? (
+        <CommandPalette onClose={closeCommandPalette} commands={commandPaletteCommands} />
+      ) : null}
       <AppErrorToast message={errorMessage} />
     </div>
   );
