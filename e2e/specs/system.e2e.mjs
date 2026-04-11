@@ -2,8 +2,10 @@ import {
   assertExportRowHidden,
   closeSettings,
   createBoard,
+  createBoardFromCommandPalette,
   duplicateBoard,
   openSettings,
+  openSettingsFromCommandPalette,
   renameBoard,
   restartAppSession,
   setHideExportRow,
@@ -56,6 +58,14 @@ describe('System suite', () => {
 
     await openSettings();
     await setHideExportRow(false);
+    await closeSettings();
+  });
+
+  it('command palette: creates board and opens settings', async () => {
+    const boardName = uniqueBoardName('Palette Board');
+
+    await createBoardFromCommandPalette(boardName);
+    await openSettingsFromCommandPalette();
     await closeSettings();
   });
 });

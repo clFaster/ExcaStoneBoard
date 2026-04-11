@@ -175,6 +175,7 @@ export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
             ref={inputRef}
             type="text"
             className="command-palette-input"
+            data-testid="command-palette-input"
             placeholder={inputCommand?.input?.placeholder ?? 'Search commands or boards...'}
             value={inputCommand ? inputValue : query}
             onChange={(event) => {
@@ -200,6 +201,7 @@ export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
                 key={command.id}
                 type="button"
                 className={`command-palette-item ${index === activeIndex ? 'active' : ''}`}
+                data-testid={`command-palette-item-${command.id}`}
                 onMouseEnter={() => setSelectedIndex(index)}
                 onClick={() => runCommand(command)}
                 role="option"
