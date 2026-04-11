@@ -1164,20 +1164,20 @@ export function BoardList({
     const nextItems =
       activeParsed.type === 'folder'
         ? applyFolderDrop({
-          folderId: activeParsed.id,
-          over: overParsed,
-          isOverInFolder,
-          parentFolderId,
-          dropPosition,
-          items,
-        })
+            folderId: activeParsed.id,
+            over: overParsed,
+            isOverInFolder,
+            parentFolderId,
+            dropPosition,
+            items,
+          })
         : applyBoardDrop({
-          boardId: activeParsed.id,
-          over: overParsed,
-          isOverInFolder,
-          dropPosition,
-          items,
-        });
+            boardId: activeParsed.id,
+            over: overParsed,
+            isOverInFolder,
+            dropPosition,
+            items,
+          });
 
     if (nextItems) {
       onUpdateItems(nextItems);

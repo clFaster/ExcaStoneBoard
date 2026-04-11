@@ -345,7 +345,7 @@ export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
 
   const inputCommand = useMemo(
     () =>
-      inputCommandId ? commands.find((command) => command.id === inputCommandId) ?? null : null,
+      inputCommandId ? (commands.find((command) => command.id === inputCommandId) ?? null) : null,
     [commands, inputCommandId],
   );
 
