@@ -7,6 +7,10 @@ const SELECTORS = {
   hideExportRowToggle: '[data-testid="toggle-hide-export-row"]',
   boardActionRename: '[data-testid="board-action-rename"]',
   boardActionDuplicate: '[data-testid="board-action-duplicate"]',
+  commandPalette: '.command-palette',
+  commandPaletteInput: '[data-testid="command-palette-input"]',
+  commandPaletteCreateBoardItem: '[data-testid="command-palette-item-create-board"]',
+  commandPaletteOpenSettingsItem: '[data-testid="command-palette-item-open-settings"]',
 };
 
 function boardNameXpath(name) {
@@ -100,6 +104,69 @@ export async function closeSettings() {
 
   const settingsModal = await $(SELECTORS.settingsModal);
   await settingsModal.waitForDisplayed({ reverse: true, timeout: 10000 });
+}
+
+export async function closeSettingsWithEscape() {
+  await browser.keys('Escape');
+
+  const settingsModal = await $(SELECTORS.settingsModal);
+  await settingsModal.waitForDisplayed({ reverse: true, timeout: 10000 });
+}
+
+export async function openCommandPalette() {
+  await browser.execute(() => {
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'p',
+        ctrlKey: true,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+
+  const commandPalette = await $(SELECTORS.commandPalette);
+  await commandPalette.waitForDisplayed({ timeout: 10000 });
+}
+
+export async function createBoardFromCommandPalette(name) {
+  await openCommandPalette();
+
+  const paletteInput = await $(SELECTORS.commandPaletteInput);
+  await paletteInput.waitForDisplayed({ timeout: 10000 });
+  await paletteInput.setValue('create new board');
+
+  const createBoardItem = await $(SELECTORS.commandPaletteCreateBoardItem);
+  await createBoardItem.waitForDisplayed({ timeout: 10000 });
+  await browser.keys('Enter');
+
+  await browser.waitUntil(async () => {
+    const placeholder = await paletteInput.getAttribute('placeholder');
+    return placeholder === 'Board name';
+  }, {
+    timeout: 10000,
+    timeoutMsg: 'Expected command palette to switch to board-name input mode.',
+  });
+
+  await paletteInput.setValue(name);
+  await browser.keys('Enter');
+  await waitForBoardVisible(name);
+}
+
+export async function openSettingsFromCommandPalette() {
+  await openCommandPalette();
+
+  const paletteInput = await $(SELECTORS.commandPaletteInput);
+  await paletteInput.waitForDisplayed({ timeout: 10000 });
+  await paletteInput.setValue('open settings');
+
+  const settingsItem = await $(SELECTORS.commandPaletteOpenSettingsItem);
+  await settingsItem.waitForDisplayed({ timeout: 10000 });
+  await browser.keys('Enter');
+
+  const settingsModal = await $(SELECTORS.settingsModal);
+  await settingsModal.waitForDisplayed({ timeout: 10000 });
 }
 
 export async function setHideExportRow(enabled) {
