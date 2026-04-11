@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ChangeEvent, Dispatch, MouseEvent, RefObject, SetStateAction } from 'react';
 import { createPortal } from 'react-dom';
 import './CommandPalette.css';
 
@@ -21,7 +22,50 @@ interface CommandPaletteProps {
   commands: CommandPaletteItem[];
 }
 
+interface RunCommandArgs {
+  command: CommandPaletteItem | undefined;
+  providedInput?: string;
+  setInputCommandId: Dispatch<SetStateAction<string | null>>;
+  setInputValue: Dispatch<SetStateAction<string>>;
+  onClose: () => void;
+}
+
+interface KeyboardContext {
+  inputCommand: CommandPaletteItem | null;
+  inputValue: string;
+  activeIndex: number;
+  filteredCommands: CommandPaletteItem[];
+  clearInputMode: () => void;
+  runCommand: (command: CommandPaletteItem | undefined, providedInput?: string) => void;
+  setSelectedIndex: Dispatch<SetStateAction<number>>;
+  onClose: () => void;
+}
+
+interface CommandPaletteResultsProps {
+  inputCommand: CommandPaletteItem | null;
+  filteredCommands: CommandPaletteItem[];
+  activeIndex: number;
+  onSelectIndex: (index: number) => void;
+  onRunCommand: (command: CommandPaletteItem) => void;
+}
+
+interface CommandPaletteDialogProps {
+  inputRef: RefObject<HTMLInputElement | null>;
+  inputCommand: CommandPaletteItem | null;
+  inputValue: string;
+  query: string;
+  setActiveInputValue: Dispatch<SetStateAction<string>>;
+  filteredCommands: CommandPaletteItem[];
+  activeIndex: number;
+  setSelectedIndex: Dispatch<SetStateAction<number>>;
+  runCommand: (command: CommandPaletteItem | undefined, providedInput?: string) => void;
+}
+
 const normalize = (value: string) => value.trim().toLowerCase();
+const isEscapeKey = (event: KeyboardEvent) => event.key === 'Escape';
+const isEnterKey = (event: KeyboardEvent) => event.key === 'Enter';
+const isArrowUpKey = (event: KeyboardEvent) => event.key === 'ArrowUp';
+const isArrowDownKey = (event: KeyboardEvent) => event.key === 'ArrowDown';
 
 const commandMatchesQuery = (command: CommandPaletteItem, query: string) => {
   if (!query) {
@@ -31,9 +75,266 @@ const commandMatchesQuery = (command: CommandPaletteItem, query: string) => {
   const haystack =
     `${command.label} ${command.description ?? ''} ${command.keywords ?? ''}`.toLowerCase();
   const terms = query.split(/\s+/).filter(Boolean);
-
   return terms.every((term) => haystack.includes(term));
 };
+
+const getActiveIndex = (selectedIndex: number, commandsCount: number) => {
+  if (commandsCount === 0) {
+    return -1;
+  }
+
+  return Math.min(selectedIndex, commandsCount - 1);
+};
+
+const getWrappedSelectionIndex = (
+  current: number,
+  commandsCount: number,
+  direction: 'up' | 'down',
+) => {
+  if (commandsCount === 0) {
+    return 0;
+  }
+
+  const normalized = Math.min(current, commandsCount - 1);
+  if (direction === 'down') {
+    return (normalized + 1) % commandsCount;
+  }
+
+  return (normalized - 1 + commandsCount) % commandsCount;
+};
+
+const focusInputOnAnimationFrame = (
+  inputRef: RefObject<HTMLInputElement | null>,
+  selectText = false,
+) => {
+  return window.requestAnimationFrame(() => {
+    inputRef.current?.focus();
+    if (selectText) {
+      inputRef.current?.select();
+    }
+  });
+};
+
+const runCommandAction = ({
+  command,
+  providedInput,
+  setInputCommandId,
+  setInputValue,
+  onClose,
+}: RunCommandArgs) => {
+  if (!command || command.disabled) {
+    return;
+  }
+
+  if (command.input && typeof providedInput !== 'string') {
+    setInputCommandId(command.id);
+    setInputValue(command.input.initialValue ?? '');
+    return;
+  }
+
+  onClose();
+  void Promise.resolve(command.action(providedInput?.trim()));
+};
+
+const tryHandleEscape = (event: KeyboardEvent, context: KeyboardContext) => {
+  if (!isEscapeKey(event)) {
+    return false;
+  }
+
+  event.preventDefault();
+  if (context.inputCommand) {
+    context.clearInputMode();
+  } else {
+    context.onClose();
+  }
+
+  return true;
+};
+
+const tryHandleEnter = (event: KeyboardEvent, context: KeyboardContext) => {
+  if (!isEnterKey(event)) {
+    return false;
+  }
+
+  event.preventDefault();
+  if (context.inputCommand) {
+    if (context.inputValue.trim()) {
+      context.runCommand(context.inputCommand, context.inputValue);
+    }
+    return true;
+  }
+
+  if (context.activeIndex >= 0) {
+    context.runCommand(context.filteredCommands[context.activeIndex]);
+  }
+
+  return true;
+};
+
+const tryHandleArrowNavigation = (event: KeyboardEvent, context: KeyboardContext) => {
+  if (!isArrowDownKey(event) && !isArrowUpKey(event)) {
+    return false;
+  }
+
+  event.preventDefault();
+  const direction = isArrowDownKey(event) ? 'down' : 'up';
+  context.setSelectedIndex((current) =>
+    getWrappedSelectionIndex(current, context.filteredCommands.length, direction),
+  );
+  return true;
+};
+
+const handlePaletteKeyDown = (event: KeyboardEvent, context: KeyboardContext) => {
+  if (tryHandleEscape(event, context)) {
+    return;
+  }
+
+  if (tryHandleEnter(event, context)) {
+    return;
+  }
+
+  if (context.inputCommand) {
+    return;
+  }
+
+  tryHandleArrowNavigation(event, context);
+};
+
+const useCommandPaletteKeyboard = ({
+  inputCommand,
+  inputValue,
+  activeIndex,
+  filteredCommands,
+  clearInputMode,
+  runCommand,
+  setSelectedIndex,
+  onClose,
+}: KeyboardContext) => {
+  useEffect(() => {
+    const context: KeyboardContext = {
+      inputCommand,
+      inputValue,
+      activeIndex,
+      filteredCommands,
+      clearInputMode,
+      runCommand,
+      setSelectedIndex,
+      onClose,
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      handlePaletteKeyDown(event, context);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [
+    activeIndex,
+    clearInputMode,
+    filteredCommands,
+    inputCommand,
+    inputValue,
+    onClose,
+    runCommand,
+    setSelectedIndex,
+  ]);
+};
+
+const getEmptyStateMessage = (inputCommand: CommandPaletteItem | null) =>
+  inputCommand?.input?.submitHint ?? 'Press Enter to confirm or Escape to go back.';
+
+function CommandPaletteResults({
+  inputCommand,
+  filteredCommands,
+  activeIndex,
+  onSelectIndex,
+  onRunCommand,
+}: CommandPaletteResultsProps) {
+  if (inputCommand) {
+    return <div className="command-palette-empty">{getEmptyStateMessage(inputCommand)}</div>;
+  }
+
+  if (filteredCommands.length === 0) {
+    return <div className="command-palette-empty">No matching commands.</div>;
+  }
+
+  return (
+    <>
+      {filteredCommands.map((command, index) => (
+        <button
+          key={command.id}
+          type="button"
+          className={`command-palette-item ${index === activeIndex ? 'active' : ''}`}
+          data-testid={`command-palette-item-${command.id}`}
+          onMouseEnter={() => onSelectIndex(index)}
+          onClick={() => onRunCommand(command)}
+          role="option"
+          aria-selected={index === activeIndex}
+          disabled={command.disabled}
+        >
+          <span className="command-palette-item-body">
+            <span className="command-palette-item-label">{command.label}</span>
+            {command.description ? (
+              <span className="command-palette-item-description">{command.description}</span>
+            ) : null}
+          </span>
+        </button>
+      ))}
+    </>
+  );
+}
+
+function CommandPaletteDialog({
+  inputRef,
+  inputCommand,
+  inputValue,
+  query,
+  setActiveInputValue,
+  filteredCommands,
+  activeIndex,
+  setSelectedIndex,
+  runCommand,
+}: CommandPaletteDialogProps) {
+  const placeholder = inputCommand?.input?.placeholder ?? 'Search commands or boards...';
+  const activeValue = inputCommand ? inputValue : query;
+
+  const handleInputChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      setActiveInputValue(event.target.value);
+    },
+    [setActiveInputValue],
+  );
+
+  return (
+    <div className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette">
+      <div className="command-palette-input-row">
+        <input
+          ref={inputRef}
+          type="text"
+          className="command-palette-input"
+          data-testid="command-palette-input"
+          placeholder={placeholder}
+          value={activeValue}
+          onChange={handleInputChange}
+        />
+      </div>
+
+      <div className="command-palette-list" role="listbox" aria-label="Command results">
+        <CommandPaletteResults
+          inputCommand={inputCommand}
+          filteredCommands={filteredCommands}
+          activeIndex={activeIndex}
+          onSelectIndex={setSelectedIndex}
+          onRunCommand={runCommand}
+        />
+      </div>
+
+      <div className="command-palette-footer">Ctrl+Shift+P / Cmd+Shift+P</div>
+    </div>
+  );
+}
 
 export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
@@ -53,14 +354,44 @@ export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
     return commands.filter((command) => commandMatchesQuery(command, normalizedQuery));
   }, [commands, query]);
 
-  const activeIndex =
-    filteredCommands.length === 0 ? -1 : Math.min(selectedIndex, filteredCommands.length - 1);
+  const activeIndex = useMemo(
+    () => getActiveIndex(selectedIndex, filteredCommands.length),
+    [selectedIndex, filteredCommands.length],
+  );
+
+  const runCommand = useCallback(
+    (command: CommandPaletteItem | undefined, providedInput?: string) => {
+      runCommandAction({
+        command,
+        providedInput,
+        setInputCommandId,
+        setInputValue,
+        onClose,
+      });
+    },
+    [onClose],
+  );
+
+  const clearInputMode = useCallback(() => {
+    setInputCommandId(null);
+    setInputValue('');
+  }, []);
+
+  const setActiveInputValue = inputCommand ? setInputValue : setQuery;
+
+  useCommandPaletteKeyboard({
+    inputCommand,
+    inputValue,
+    activeIndex,
+    filteredCommands,
+    clearInputMode,
+    runCommand,
+    setSelectedIndex,
+    onClose,
+  });
 
   useEffect(() => {
-    const frameId = window.requestAnimationFrame(() => {
-      inputRef.current?.focus();
-    });
-
+    const frameId = focusInputOnAnimationFrame(inputRef);
     return () => {
       window.cancelAnimationFrame(frameId);
     };
@@ -71,156 +402,34 @@ export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
       return;
     }
 
-    const frameId = window.requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    });
-
+    const frameId = focusInputOnAnimationFrame(inputRef, true);
     return () => {
       window.cancelAnimationFrame(frameId);
     };
   }, [inputCommand]);
 
-  const runCommand = useCallback(
-    (command: CommandPaletteItem | undefined, providedInput?: string) => {
-      if (!command || command.disabled) {
-        return;
+  const handleOverlayMouseDown = useCallback(
+    (event: MouseEvent<HTMLDivElement>) => {
+      if (event.target === event.currentTarget) {
+        onClose();
       }
-
-      if (command.input && typeof providedInput !== 'string') {
-        setInputCommandId(command.id);
-        setInputValue(command.input.initialValue ?? '');
-        return;
-      }
-
-      onClose();
-      void Promise.resolve(command.action(providedInput?.trim()));
     },
     [onClose],
   );
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        if (inputCommand) {
-          setInputCommandId(null);
-          setInputValue('');
-        } else {
-          onClose();
-        }
-        return;
-      }
-
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        if (inputCommand) {
-          if (inputValue.trim()) {
-            runCommand(inputCommand, inputValue);
-          }
-          return;
-        }
-        if (activeIndex >= 0) {
-          runCommand(filteredCommands[activeIndex]);
-        }
-        return;
-      }
-
-      if (inputCommand) {
-        return;
-      }
-
-      if (event.key === 'ArrowDown') {
-        event.preventDefault();
-        setSelectedIndex((current) => {
-          if (filteredCommands.length === 0) {
-            return 0;
-          }
-          const normalized = Math.min(current, filteredCommands.length - 1);
-          return (normalized + 1) % filteredCommands.length;
-        });
-        return;
-      }
-
-      if (event.key === 'ArrowUp') {
-        event.preventDefault();
-        setSelectedIndex((current) => {
-          if (filteredCommands.length === 0) {
-            return 0;
-          }
-          const normalized = Math.min(current, filteredCommands.length - 1);
-          return (normalized - 1 + filteredCommands.length) % filteredCommands.length;
-        });
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [activeIndex, filteredCommands, inputCommand, inputValue, onClose, runCommand]);
-
   return createPortal(
-    <div
-      className="command-palette-overlay"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onClose();
-        }
-      }}
-    >
-      <div className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette">
-        <div className="command-palette-input-row">
-          <input
-            ref={inputRef}
-            type="text"
-            className="command-palette-input"
-            data-testid="command-palette-input"
-            placeholder={inputCommand?.input?.placeholder ?? 'Search commands or boards...'}
-            value={inputCommand ? inputValue : query}
-            onChange={(event) => {
-              if (inputCommand) {
-                setInputValue(event.target.value);
-                return;
-              }
-              setQuery(event.target.value);
-            }}
-          />
-        </div>
-
-        <div className="command-palette-list" role="listbox" aria-label="Command results">
-          {inputCommand ? (
-            <div className="command-palette-empty">
-              {inputCommand.input?.submitHint ?? 'Press Enter to confirm or Escape to go back.'}
-            </div>
-          ) : filteredCommands.length === 0 ? (
-            <div className="command-palette-empty">No matching commands.</div>
-          ) : (
-            filteredCommands.map((command, index) => (
-              <button
-                key={command.id}
-                type="button"
-                className={`command-palette-item ${index === activeIndex ? 'active' : ''}`}
-                data-testid={`command-palette-item-${command.id}`}
-                onMouseEnter={() => setSelectedIndex(index)}
-                onClick={() => runCommand(command)}
-                role="option"
-                aria-selected={index === activeIndex}
-                disabled={command.disabled}
-              >
-                <span className="command-palette-item-body">
-                  <span className="command-palette-item-label">{command.label}</span>
-                  {command.description ? (
-                    <span className="command-palette-item-description">{command.description}</span>
-                  ) : null}
-                </span>
-              </button>
-            ))
-          )}
-        </div>
-
-        <div className="command-palette-footer">Ctrl+Shift+P / Cmd+Shift+P</div>
-      </div>
+    <div className="command-palette-overlay" onMouseDown={handleOverlayMouseDown}>
+      <CommandPaletteDialog
+        inputRef={inputRef}
+        inputCommand={inputCommand}
+        inputValue={inputValue}
+        query={query}
+        setActiveInputValue={setActiveInputValue}
+        filteredCommands={filteredCommands}
+        activeIndex={activeIndex}
+        setSelectedIndex={setSelectedIndex}
+        runCommand={runCommand}
+      />
     </div>,
     document.body,
   );

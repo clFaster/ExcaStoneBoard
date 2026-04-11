@@ -823,12 +823,14 @@ export function BoardList({
 
   const handleDelete = async (board: Board) => {
     const message = `Delete "${board.name}"?`;
-    let shouldDelete = false;
-    try {
-      shouldDelete = await confirm(message, { title: 'Delete board', kind: 'warning' });
-    } catch {
-      shouldDelete = window.confirm(message);
-    }
+    const shouldDelete = await (async () => {
+      try {
+        return await confirm(message, { title: 'Delete board', kind: 'warning' });
+      } catch {
+        return window.confirm(message);
+      }
+    })();
+
     if (shouldDelete) {
       await onDeleteBoard(board.id);
     }
@@ -1159,25 +1161,24 @@ export function BoardList({
 
     const dropPosition = currentDragState.dropPosition ?? 'after';
 
-    let nextItems: BoardListItem[] | null = null;
-    if (activeParsed.type === 'folder') {
-      nextItems = applyFolderDrop({
-        folderId: activeParsed.id,
-        over: overParsed,
-        isOverInFolder,
-        parentFolderId,
-        dropPosition,
-        items,
-      });
-    } else {
-      nextItems = applyBoardDrop({
-        boardId: activeParsed.id,
-        over: overParsed,
-        isOverInFolder,
-        dropPosition,
-        items,
-      });
-    }
+    const nextItems =
+      activeParsed.type === 'folder'
+        ? applyFolderDrop({
+          folderId: activeParsed.id,
+          over: overParsed,
+          isOverInFolder,
+          parentFolderId,
+          dropPosition,
+          items,
+        })
+        : applyBoardDrop({
+          boardId: activeParsed.id,
+          over: overParsed,
+          isOverInFolder,
+          dropPosition,
+          items,
+        });
+
     if (nextItems) {
       onUpdateItems(nextItems);
     }
