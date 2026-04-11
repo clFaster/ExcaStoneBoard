@@ -106,6 +106,13 @@ export async function closeSettings() {
   await settingsModal.waitForDisplayed({ reverse: true, timeout: 10000 });
 }
 
+export async function closeSettingsWithEscape() {
+  await browser.keys('Escape');
+
+  const settingsModal = await $(SELECTORS.settingsModal);
+  await settingsModal.waitForDisplayed({ reverse: true, timeout: 10000 });
+}
+
 export async function openCommandPalette() {
   await browser.execute(() => {
     window.dispatchEvent(

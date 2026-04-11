@@ -1,6 +1,7 @@
 import {
   assertExportRowHidden,
   closeSettings,
+  closeSettingsWithEscape,
   createBoard,
   createBoardFromCommandPalette,
   duplicateBoard,
@@ -21,6 +22,11 @@ describe('System suite', () => {
     await createBoard(boardName);
     await openSettings();
     await closeSettings();
+  });
+
+  it('settings: closes with Escape', async () => {
+    await openSettings();
+    await closeSettingsWithEscape();
   });
 
   it('lifecycle: creates, renames, and duplicates a board', async () => {

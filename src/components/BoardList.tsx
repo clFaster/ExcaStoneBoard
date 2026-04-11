@@ -740,6 +740,30 @@ export function BoardList({
     };
   }, []);
 
+  useEffect(() => {
+    if (!settingsOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+
+      event.preventDefault();
+      if (boardsExporting || boardsImporting) {
+        return;
+      }
+
+      setSettingsOpen(false);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [boardsExporting, boardsImporting, settingsOpen]);
+
   // Cleanup folders (convert single-item folders to boards, remove empty ones)
   useEffect(() => {
     const normalized = cleanupFolders(items);
