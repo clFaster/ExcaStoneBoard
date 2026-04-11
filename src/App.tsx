@@ -156,11 +156,18 @@ function App() {
       {
         id: 'create-board',
         label: 'Create new board',
-        description: 'Add an empty board and make it active',
+        description: 'Create and name a new board',
         keywords: 'new board create add',
         shortcut: 'N',
-        action: async () => {
-          await createBoard('Untitled board');
+        input: {
+          placeholder: 'Board name',
+          submitHint: 'Press Enter to create the board.',
+        },
+        action: async (inputValue) => {
+          if (!inputValue) {
+            return;
+          }
+          await createBoard(inputValue);
         },
       },
       {

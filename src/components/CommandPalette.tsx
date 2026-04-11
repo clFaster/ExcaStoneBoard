@@ -9,7 +9,12 @@ export interface CommandPaletteItem {
   keywords?: string;
   shortcut?: string;
   disabled?: boolean;
-  action: () => void | Promise<void>;
+  input?: {
+    placeholder: string;
+    initialValue?: string;
+    submitHint?: string;
+  };
+  action: (inputValue?: string) => void | Promise<void>;
 }
 
 interface CommandPaletteProps {
@@ -34,7 +39,15 @@ const commandMatchesQuery = (command: CommandPaletteItem, query: string) => {
 export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [inputCommandId, setInputCommandId] = useState<string | null>(null);
+  const [inputValue, setInputValue] = useState('');
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const inputCommand = useMemo(
+    () =>
+      inputCommandId ? commands.find((command) => command.id === inputCommandId) ?? null : null,
+    [commands, inputCommandId],
+  );
 
   const filteredCommands = useMemo(() => {
     const normalizedQuery = normalize(query);
@@ -54,14 +67,35 @@ export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!inputCommand) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [inputCommand]);
+
   const runCommand = useCallback(
-    (command: CommandPaletteItem | undefined) => {
+    (command: CommandPaletteItem | undefined, providedInput?: string) => {
       if (!command || command.disabled) {
         return;
       }
 
+      if (command.input && typeof providedInput !== 'string') {
+        setInputCommandId(command.id);
+        setInputValue(command.input.initialValue ?? '');
+        return;
+      }
+
       onClose();
-      void Promise.resolve(command.action());
+      void Promise.resolve(command.action(providedInput?.trim()));
     },
     [onClose],
   );
@@ -70,7 +104,30 @@ export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        if (inputCommand) {
+          setInputCommandId(null);
+          setInputValue('');
+        } else {
+          onClose();
+        }
+        return;
+      }
+
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        if (inputCommand) {
+          if (inputValue.trim()) {
+            runCommand(inputCommand, inputValue);
+          }
+          return;
+        }
+        if (activeIndex >= 0) {
+          runCommand(filteredCommands[activeIndex]);
+        }
+        return;
+      }
+
+      if (inputCommand) {
         return;
       }
 
@@ -95,14 +152,6 @@ export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
           const normalized = Math.min(current, filteredCommands.length - 1);
           return (normalized - 1 + filteredCommands.length) % filteredCommands.length;
         });
-        return;
-      }
-
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        if (activeIndex >= 0) {
-          runCommand(filteredCommands[activeIndex]);
-        }
       }
     };
 
@@ -110,7 +159,7 @@ export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [activeIndex, filteredCommands, onClose, runCommand]);
+  }, [activeIndex, filteredCommands, inputCommand, inputValue, onClose, runCommand]);
 
   return createPortal(
     <div
@@ -127,14 +176,24 @@ export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
             ref={inputRef}
             type="text"
             className="command-palette-input"
-            placeholder="Search commands or boards..."
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            placeholder={inputCommand?.input?.placeholder ?? 'Search commands or boards...'}
+            value={inputCommand ? inputValue : query}
+            onChange={(event) => {
+              if (inputCommand) {
+                setInputValue(event.target.value);
+                return;
+              }
+              setQuery(event.target.value);
+            }}
           />
         </div>
 
         <div className="command-palette-list" role="listbox" aria-label="Command results">
-          {filteredCommands.length === 0 ? (
+          {inputCommand ? (
+            <div className="command-palette-empty">
+              {inputCommand.input?.submitHint ?? 'Press Enter to confirm or Escape to go back.'}
+            </div>
+          ) : filteredCommands.length === 0 ? (
             <div className="command-palette-empty">No matching commands.</div>
           ) : (
             filteredCommands.map((command, index) => (
