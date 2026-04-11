@@ -97,17 +97,6 @@
   white-space: nowrap;
 }
 
-.command-palette-item-shortcut {
-  color: var(--text-muted);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 6px;
-  white-space: nowrap;
-}
-
 .command-palette-empty {
   color: var(--text-muted);
   font-size: 13px;

@@ -158,7 +158,6 @@ function App() {
         label: 'Create new board',
         description: 'Create and name a new board',
         keywords: 'new board create add',
-        shortcut: 'N',
         input: {
           placeholder: 'Board name',
           submitHint: 'Press Enter to create the board.',
@@ -175,7 +174,6 @@ function App() {
         label: 'Open settings',
         description: 'Manage export, import, and display preferences',
         keywords: 'settings preferences options',
-        shortcut: ',',
         action: requestOpenSettings,
       },
       {
@@ -183,7 +181,6 @@ function App() {
         label: sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar',
         description: 'Toggle the board sidebar visibility',
         keywords: 'sidebar collapse expand',
-        shortcut: 'B',
         action: toggleSidebar,
       },
       {

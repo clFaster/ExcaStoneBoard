@@ -7,7 +7,6 @@ export interface CommandPaletteItem {
   label: string;
   description?: string;
   keywords?: string;
-  shortcut?: string;
   disabled?: boolean;
   input?: {
     placeholder: string;
@@ -213,9 +212,6 @@ export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
                     <span className="command-palette-item-description">{command.description}</span>
                   ) : null}
                 </span>
-                {command.shortcut ? (
-                  <span className="command-palette-item-shortcut">{command.shortcut}</span>
-                ) : null}
               </button>
             ))
           )}
