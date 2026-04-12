@@ -81,6 +81,179 @@ interface CommandPaletteCommandsConfig {
   allBoards: ReturnType<typeof flattenBoardsForPalette>;
 }
 
+interface BoardCommandGroups {
+  openBoardCommands: CommandPaletteItem[];
+  renameBoardCommands: CommandPaletteItem[];
+  duplicateBoardCommands: CommandPaletteItem[];
+  deleteBoardCommands: CommandPaletteItem[];
+}
+
+const createCreateBoardAction =
+  (createBoard: AppController['createBoard']) => async (inputValue?: string) => {
+    if (!inputValue) {
+      return;
+    }
+
+    await createBoard(inputValue);
+  };
+
+const createRenameBoardAction =
+  (renameBoard: AppController['renameBoard'], boardId: string) => async (inputValue?: string) => {
+    if (!inputValue) {
+      return;
+    }
+
+    await renameBoard(boardId, inputValue);
+  };
+
+const createDuplicateBoardAction =
+  (duplicateBoard: AppController['duplicateBoard'], boardId: string) =>
+  async (inputValue?: string) => {
+    if (!inputValue) {
+      return;
+    }
+
+    await duplicateBoard(boardId, inputValue);
+  };
+
+const createDeleteBoardAction =
+  (deleteBoard: AppController['deleteBoard'], entry: PaletteBoardEntry) => async () => {
+    const shouldDelete = window.confirm(`Delete "${entry.boardName}"?`);
+    if (!shouldDelete) {
+      return;
+    }
+
+    await deleteBoard(entry.boardId);
+  };
+
+const createBoardCommandGroups = (
+  allBoards: PaletteBoardEntry[],
+  handleSelectBoard: AppController['handleSelectBoard'],
+  renameBoard: AppController['renameBoard'],
+  duplicateBoard: AppController['duplicateBoard'],
+  deleteBoard: AppController['deleteBoard'],
+): BoardCommandGroups => ({
+  openBoardCommands: allBoards.map<CommandPaletteItem>((entry) => ({
+    id: `open-board-${entry.boardId}`,
+    label: entry.boardName,
+    description: getBoardLocationDescription(entry),
+    keywords: `${entry.boardName} ${entry.folderName ?? ''}`,
+    action: async () => {
+      await handleSelectBoard(entry.boardId);
+    },
+  })),
+  renameBoardCommands: allBoards.map<CommandPaletteItem>((entry) => ({
+    id: `rename-board-${entry.boardId}`,
+    label: entry.boardName,
+    description: getBoardLocationDescription(entry),
+    keywords: `rename board ${entry.boardName} ${entry.folderName ?? ''}`,
+    input: {
+      placeholder: `New name for "${entry.boardName}"`,
+      initialValue: entry.boardName,
+      submitHint: 'Press Enter to rename the board.',
+    },
+    action: createRenameBoardAction(renameBoard, entry.boardId),
+  })),
+  duplicateBoardCommands: allBoards.map<CommandPaletteItem>((entry) => ({
+    id: `duplicate-board-${entry.boardId}`,
+    label: entry.boardName,
+    description: getBoardLocationDescription(entry),
+    keywords: `duplicate board ${entry.boardName} ${entry.folderName ?? ''}`,
+    input: {
+      placeholder: `Copy name for "${entry.boardName}"`,
+      initialValue: `${entry.boardName} (Copy)`,
+      submitHint: 'Press Enter to duplicate the board.',
+    },
+    action: createDuplicateBoardAction(duplicateBoard, entry.boardId),
+  })),
+  deleteBoardCommands: allBoards.map<CommandPaletteItem>((entry) => ({
+    id: `delete-board-${entry.boardId}`,
+    label: entry.boardName,
+    description: getBoardLocationDescription(entry),
+    keywords: `delete board remove ${entry.boardName} ${entry.folderName ?? ''}`,
+    action: createDeleteBoardAction(deleteBoard, entry),
+  })),
+});
+
+interface BoardGroupCommandConfig {
+  id: string;
+  label: string;
+  description: string;
+  keywords: string;
+  disabled: boolean;
+  searchPlaceholder: string;
+  emptyStateMessage: string;
+  children: CommandPaletteItem[];
+}
+
+const createBoardGroupCommand = ({
+  id,
+  label,
+  description,
+  keywords,
+  disabled,
+  searchPlaceholder,
+  emptyStateMessage,
+  children,
+}: BoardGroupCommandConfig): CommandPaletteItem => ({
+  id,
+  label,
+  description,
+  keywords,
+  disabled,
+  searchPlaceholder,
+  emptyStateMessage,
+  children,
+  action: noopCommandAction,
+});
+
+const createBoardCommandGroupCommands = (
+  hasBoards: boolean,
+  boardSearchEmptyState: string,
+  boardCommands: BoardCommandGroups,
+) => [
+  createBoardGroupCommand({
+    id: 'open-board',
+    label: 'Open board',
+    description: hasBoards ? 'Select a board from a filterable list' : 'No boards available',
+    keywords: 'open board switch select',
+    disabled: !hasBoards,
+    searchPlaceholder: 'Type to filter boards...',
+    emptyStateMessage: boardSearchEmptyState,
+    children: boardCommands.openBoardCommands,
+  }),
+  createBoardGroupCommand({
+    id: 'rename-board',
+    label: 'Rename board',
+    description: hasBoards ? 'Pick a board, then enter a new name' : 'No boards available',
+    keywords: 'rename board',
+    disabled: !hasBoards,
+    searchPlaceholder: 'Select board to rename...',
+    emptyStateMessage: boardSearchEmptyState,
+    children: boardCommands.renameBoardCommands,
+  }),
+  createBoardGroupCommand({
+    id: 'duplicate-board',
+    label: 'Duplicate board',
+    description: hasBoards ? 'Pick a board, then name the copy' : 'No boards available',
+    keywords: 'duplicate board copy',
+    disabled: !hasBoards,
+    searchPlaceholder: 'Select board to duplicate...',
+    emptyStateMessage: boardSearchEmptyState,
+    children: boardCommands.duplicateBoardCommands,
+  }),
+  createBoardGroupCommand({
+    id: 'delete-board',
+    label: 'Delete board',
+    description: hasBoards ? 'Pick a board to delete' : 'No boards available',
+    keywords: 'delete board remove',
+    disabled: !hasBoards,
+    searchPlaceholder: 'Select board to delete...',
+    emptyStateMessage: boardSearchEmptyState,
+    children: boardCommands.deleteBoardCommands,
+  }),
+];
+
 const createCommandPaletteCommands = ({
   activeBoardId,
   boardDataLoading,
@@ -111,69 +284,13 @@ const createCommandPaletteCommands = ({
   );
   const hasBoards = allBoards.length > 0;
   const boardSearchEmptyState = hasBoards ? 'No matching boards.' : 'No boards available.';
-
-  const openBoardCommands = allBoards.map<CommandPaletteItem>((entry) => ({
-    id: `open-board-${entry.boardId}`,
-    label: entry.boardName,
-    description: getBoardLocationDescription(entry),
-    keywords: `${entry.boardName} ${entry.folderName ?? ''}`,
-    action: async () => {
-      await handleSelectBoard(entry.boardId);
-    },
-  }));
-
-  const renameBoardCommands = allBoards.map<CommandPaletteItem>((entry) => ({
-    id: `rename-board-${entry.boardId}`,
-    label: entry.boardName,
-    description: getBoardLocationDescription(entry),
-    keywords: `rename board ${entry.boardName} ${entry.folderName ?? ''}`,
-    input: {
-      placeholder: `New name for "${entry.boardName}"`,
-      initialValue: entry.boardName,
-      submitHint: 'Press Enter to rename the board.',
-    },
-    action: async (inputValue) => {
-      if (!inputValue) {
-        return;
-      }
-
-      await renameBoard(entry.boardId, inputValue);
-    },
-  }));
-
-  const duplicateBoardCommands = allBoards.map<CommandPaletteItem>((entry) => ({
-    id: `duplicate-board-${entry.boardId}`,
-    label: entry.boardName,
-    description: getBoardLocationDescription(entry),
-    keywords: `duplicate board ${entry.boardName} ${entry.folderName ?? ''}`,
-    input: {
-      placeholder: `Copy name for "${entry.boardName}"`,
-      initialValue: `${entry.boardName} (Copy)`,
-      submitHint: 'Press Enter to duplicate the board.',
-    },
-    action: async (inputValue) => {
-      if (!inputValue) {
-        return;
-      }
-
-      await duplicateBoard(entry.boardId, inputValue);
-    },
-  }));
-
-  const deleteBoardCommands = allBoards.map<CommandPaletteItem>((entry) => ({
-    id: `delete-board-${entry.boardId}`,
-    label: entry.boardName,
-    description: getBoardLocationDescription(entry),
-    keywords: `delete board remove ${entry.boardName} ${entry.folderName ?? ''}`,
-    action: async () => {
-      const shouldDelete = window.confirm(`Delete "${entry.boardName}"?`);
-      if (!shouldDelete) {
-        return;
-      }
-
-      await deleteBoard(entry.boardId);
-    },
-  }));
+  const boardCommands = createBoardCommandGroups(
+    allBoards,
+    handleSelectBoard,
+    renameBoard,
+    duplicateBoard,
+    deleteBoard,
+  );
 
   const commands: CommandPaletteItem[] = [
     {
@@ -185,58 +302,9 @@ const createCommandPaletteCommands = ({
         placeholder: 'Board name',
         submitHint: 'Press Enter to create the board.',
       },
-      action: async (inputValue) => {
-        if (!inputValue) {
-          return;
-        }
-
-        await createBoard(inputValue);
-      },
+      action: createCreateBoardAction(createBoard),
     },
-    {
-      id: 'open-board',
-      label: 'Open board',
-      description: hasBoards ? 'Select a board from a filterable list' : 'No boards available',
-      keywords: 'open board switch select',
-      disabled: !hasBoards,
-      searchPlaceholder: 'Type to filter boards...',
-      emptyStateMessage: boardSearchEmptyState,
-      children: openBoardCommands,
-      action: noopCommandAction,
-    },
-    {
-      id: 'rename-board',
-      label: 'Rename board',
-      description: hasBoards ? 'Pick a board, then enter a new name' : 'No boards available',
-      keywords: 'rename board',
-      disabled: !hasBoards,
-      searchPlaceholder: 'Select board to rename...',
-      emptyStateMessage: boardSearchEmptyState,
-      children: renameBoardCommands,
-      action: noopCommandAction,
-    },
-    {
-      id: 'duplicate-board',
-      label: 'Duplicate board',
-      description: hasBoards ? 'Pick a board, then name the copy' : 'No boards available',
-      keywords: 'duplicate board copy',
-      disabled: !hasBoards,
-      searchPlaceholder: 'Select board to duplicate...',
-      emptyStateMessage: boardSearchEmptyState,
-      children: duplicateBoardCommands,
-      action: noopCommandAction,
-    },
-    {
-      id: 'delete-board',
-      label: 'Delete board',
-      description: hasBoards ? 'Pick a board to delete' : 'No boards available',
-      keywords: 'delete board remove',
-      disabled: !hasBoards,
-      searchPlaceholder: 'Select board to delete...',
-      emptyStateMessage: boardSearchEmptyState,
-      children: deleteBoardCommands,
-      action: noopCommandAction,
-    },
+    ...createBoardCommandGroupCommands(hasBoards, boardSearchEmptyState, boardCommands),
     {
       id: 'export-boards',
       label: 'Export boards',

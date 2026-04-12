@@ -130,6 +130,15 @@ const focusInputOnAnimationFrame = (
   });
 };
 
+const hasProvidedInput = (providedInput?: string): providedInput is string =>
+  typeof providedInput === 'string';
+
+const shouldOpenCommandGroup = (command: CommandPaletteItem, providedInput?: string) =>
+  Boolean(command.children && command.children.length > 0) && !hasProvidedInput(providedInput);
+
+const shouldOpenCommandInput = (command: CommandPaletteItem, providedInput?: string) =>
+  Boolean(command.input) && !hasProvidedInput(providedInput);
+
 const runCommandAction = ({
   command,
   providedInput,
@@ -144,7 +153,7 @@ const runCommandAction = ({
     return;
   }
 
-  if (command.children && command.children.length > 0 && typeof providedInput !== 'string') {
+  if (shouldOpenCommandGroup(command, providedInput)) {
     setActiveCommandId(command.id);
     setQuery('');
     setSelectedIndex(0);
@@ -153,9 +162,9 @@ const runCommandAction = ({
     return;
   }
 
-  if (command.input && typeof providedInput !== 'string') {
+  if (shouldOpenCommandInput(command, providedInput)) {
     setInputCommandId(command.id);
-    setInputValue(command.input.initialValue ?? '');
+    setInputValue(command.input?.initialValue ?? '');
     return;
   }
 
@@ -404,16 +413,21 @@ function CommandPaletteDialog({
   );
 }
 
-export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
-  const [activeCommandId, setActiveCommandId] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [inputCommandId, setInputCommandId] = useState<string | null>(null);
-  const [inputValue, setInputValue] = useState('');
-  const [keyboardNavigationActive, setKeyboardNavigationActive] = useState(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const listRef = useRef<HTMLDivElement | null>(null);
+interface UseCommandPaletteStateArgs {
+  commands: CommandPaletteItem[];
+  activeCommandId: string | null;
+  inputCommandId: string | null;
+  query: string;
+  selectedIndex: number;
+}
 
+const useCommandPaletteState = ({
+  commands,
+  activeCommandId,
+  inputCommandId,
+  query,
+  selectedIndex,
+}: UseCommandPaletteStateArgs) => {
   const activeCommand = useMemo(
     () =>
       activeCommandId ? (commands.find((command) => command.id === activeCommandId) ?? null) : null,
@@ -443,6 +457,79 @@ export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
     [selectedIndex, filteredCommands.length],
   );
 
+  return { activeCommand, inputCommand, filteredCommands, activeIndex };
+};
+
+const useInitialInputFocus = (inputRef: RefObject<HTMLInputElement | null>) => {
+  useEffect(() => {
+    const frameId = focusInputOnAnimationFrame(inputRef);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [inputRef]);
+};
+
+const useInputCommandFocus = (
+  inputRef: RefObject<HTMLInputElement | null>,
+  inputCommand: CommandPaletteItem | null,
+) => {
+  useEffect(() => {
+    if (!inputCommand) {
+      return;
+    }
+
+    const frameId = focusInputOnAnimationFrame(inputRef, true);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [inputRef, inputCommand]);
+};
+
+const useActiveCommandScroll = (
+  listRef: RefObject<HTMLDivElement | null>,
+  inputCommand: CommandPaletteItem | null,
+  activeIndex: number,
+  filteredCommands: CommandPaletteItem[],
+) => {
+  useEffect(() => {
+    if (inputCommand || activeIndex < 0) {
+      return;
+    }
+
+    const listElement = listRef.current;
+    if (!listElement) {
+      return;
+    }
+
+    const activeElement = listElement.querySelector<HTMLElement>('.command-palette-item.active');
+    activeElement?.scrollIntoView({ block: 'nearest' });
+  }, [activeIndex, filteredCommands, inputCommand, listRef]);
+};
+
+const getActiveInputValueSetter = (
+  inputCommand: CommandPaletteItem | null,
+  setInputValue: Dispatch<SetStateAction<string>>,
+  setQuery: Dispatch<SetStateAction<string>>,
+) => (inputCommand ? setInputValue : setQuery);
+
+export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
+  const [activeCommandId, setActiveCommandId] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [inputCommandId, setInputCommandId] = useState<string | null>(null);
+  const [inputValue, setInputValue] = useState('');
+  const [keyboardNavigationActive, setKeyboardNavigationActive] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  const { activeCommand, inputCommand, filteredCommands, activeIndex } = useCommandPaletteState({
+    commands,
+    activeCommandId,
+    inputCommandId,
+    query,
+    selectedIndex,
+  });
+
   const runCommand = useCallback(
     (command: CommandPaletteItem | undefined, providedInput?: string) => {
       runCommandAction({
@@ -470,7 +557,7 @@ export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
     setSelectedIndex(0);
   }, []);
 
-  const setActiveInputValue = inputCommand ? setInputValue : setQuery;
+  const setActiveInputValue = getActiveInputValueSetter(inputCommand, setInputValue, setQuery);
 
   useCommandPaletteKeyboard({
     activeCommand,
@@ -486,37 +573,9 @@ export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
     onClose,
   });
 
-  useEffect(() => {
-    const frameId = focusInputOnAnimationFrame(inputRef);
-    return () => {
-      window.cancelAnimationFrame(frameId);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!inputCommand) {
-      return;
-    }
-
-    const frameId = focusInputOnAnimationFrame(inputRef, true);
-    return () => {
-      window.cancelAnimationFrame(frameId);
-    };
-  }, [inputCommand]);
-
-  useEffect(() => {
-    if (inputCommand || activeIndex < 0) {
-      return;
-    }
-
-    const listElement = listRef.current;
-    if (!listElement) {
-      return;
-    }
-
-    const activeElement = listElement.querySelector<HTMLElement>('.command-palette-item.active');
-    activeElement?.scrollIntoView({ block: 'nearest' });
-  }, [activeIndex, inputCommand, filteredCommands]);
+  useInitialInputFocus(inputRef);
+  useInputCommandFocus(inputRef, inputCommand);
+  useActiveCommandScroll(listRef, inputCommand, activeIndex, filteredCommands);
 
   const handleOverlayMouseDown = useCallback(
     (event: MouseEvent<HTMLDivElement>) => {
