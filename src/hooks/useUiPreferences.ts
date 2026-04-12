@@ -29,6 +29,7 @@ const DEFAULT_UI_PREFERENCES: UiPreferencesState = {
   sidebarCollapsed: false,
 };
 
+// TODO(#38): Remove this legacy localStorage migration layer after the DB-backed preferences rollout window.
 const LEGACY_STORAGE_KEYS: Record<UiPreferenceField, string> = {
   hideExportRow: 'boards.hideExportRow',
   showTimestamps: 'boards.showTimestamps',
