@@ -46,6 +46,34 @@
 .command-palette-list {
   overflow-y: auto;
   padding: 8px;
+  scrollbar-width: none;
+  scrollbar-color: transparent transparent;
+}
+
+.command-palette-list::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.command-palette-list:hover {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(138, 150, 168, 0.58) transparent;
+}
+
+.command-palette-list:hover::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.command-palette-list:hover::-webkit-scrollbar-thumb {
+  background: rgba(138, 150, 168, 0.58);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.command-palette-list:hover::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .command-palette-item {
@@ -63,9 +91,16 @@
   cursor: pointer;
 }
 
-.command-palette-item:hover,
 .command-palette-item.active {
+  background: var(--bg-selected);
+}
+
+.command-palette-item:hover {
   background: var(--bg-active);
+}
+
+.command-palette-item.active:hover {
+  background: var(--bg-selected-hover);
 }
 
 .command-palette-item:disabled {

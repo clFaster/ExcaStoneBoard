@@ -9,6 +9,9 @@ export interface CommandPaletteItem {
   description?: string;
   keywords?: string;
   disabled?: boolean;
+  children?: CommandPaletteItem[];
+  searchPlaceholder?: string;
+  emptyStateMessage?: string;
   input?: {
     placeholder: string;
     initialValue?: string;
@@ -25,38 +28,50 @@ interface CommandPaletteProps {
 interface RunCommandArgs {
   command: CommandPaletteItem | undefined;
   providedInput?: string;
+  setActiveCommandId: Dispatch<SetStateAction<string | null>>;
+  setQuery: Dispatch<SetStateAction<string>>;
+  setSelectedIndex: Dispatch<SetStateAction<number>>;
   setInputCommandId: Dispatch<SetStateAction<string | null>>;
   setInputValue: Dispatch<SetStateAction<string>>;
   onClose: () => void;
 }
 
 interface KeyboardContext {
+  activeCommand: CommandPaletteItem | null;
   inputCommand: CommandPaletteItem | null;
   inputValue: string;
   activeIndex: number;
   filteredCommands: CommandPaletteItem[];
+  clearCommandGroup: () => void;
   clearInputMode: () => void;
+  setKeyboardNavigationActive: Dispatch<SetStateAction<boolean>>;
   runCommand: (command: CommandPaletteItem | undefined, providedInput?: string) => void;
   setSelectedIndex: Dispatch<SetStateAction<number>>;
   onClose: () => void;
 }
 
 interface CommandPaletteResultsProps {
+  activeCommand: CommandPaletteItem | null;
   inputCommand: CommandPaletteItem | null;
   filteredCommands: CommandPaletteItem[];
   activeIndex: number;
+  keyboardNavigationActive: boolean;
   onSelectIndex: (index: number) => void;
   onRunCommand: (command: CommandPaletteItem) => void;
 }
 
 interface CommandPaletteDialogProps {
   inputRef: RefObject<HTMLInputElement | null>;
+  listRef: RefObject<HTMLDivElement | null>;
+  activeCommand: CommandPaletteItem | null;
   inputCommand: CommandPaletteItem | null;
   inputValue: string;
   query: string;
   setActiveInputValue: Dispatch<SetStateAction<string>>;
   filteredCommands: CommandPaletteItem[];
   activeIndex: number;
+  keyboardNavigationActive: boolean;
+  setKeyboardNavigationActive: Dispatch<SetStateAction<boolean>>;
   setSelectedIndex: Dispatch<SetStateAction<number>>;
   runCommand: (command: CommandPaletteItem | undefined, providedInput?: string) => void;
 }
@@ -115,9 +130,21 @@ const focusInputOnAnimationFrame = (
   });
 };
 
+const hasProvidedInput = (providedInput?: string): providedInput is string =>
+  typeof providedInput === 'string';
+
+const shouldOpenCommandGroup = (command: CommandPaletteItem, providedInput?: string) =>
+  Boolean(command.children && command.children.length > 0) && !hasProvidedInput(providedInput);
+
+const shouldOpenCommandInput = (command: CommandPaletteItem, providedInput?: string) =>
+  Boolean(command.input) && !hasProvidedInput(providedInput);
+
 const runCommandAction = ({
   command,
   providedInput,
+  setActiveCommandId,
+  setQuery,
+  setSelectedIndex,
   setInputCommandId,
   setInputValue,
   onClose,
@@ -126,9 +153,18 @@ const runCommandAction = ({
     return;
   }
 
-  if (command.input && typeof providedInput !== 'string') {
+  if (shouldOpenCommandGroup(command, providedInput)) {
+    setActiveCommandId(command.id);
+    setQuery('');
+    setSelectedIndex(0);
+    setInputCommandId(null);
+    setInputValue('');
+    return;
+  }
+
+  if (shouldOpenCommandInput(command, providedInput)) {
     setInputCommandId(command.id);
-    setInputValue(command.input.initialValue ?? '');
+    setInputValue(command.input?.initialValue ?? '');
     return;
   }
 
@@ -144,6 +180,8 @@ const tryHandleEscape = (event: KeyboardEvent, context: KeyboardContext) => {
   event.preventDefault();
   if (context.inputCommand) {
     context.clearInputMode();
+  } else if (context.activeCommand) {
+    context.clearCommandGroup();
   } else {
     context.onClose();
   }
@@ -177,6 +215,7 @@ const tryHandleArrowNavigation = (event: KeyboardEvent, context: KeyboardContext
   }
 
   event.preventDefault();
+  context.setKeyboardNavigationActive(true);
   const direction = isArrowDownKey(event) ? 'down' : 'up';
   context.setSelectedIndex((current) =>
     getWrappedSelectionIndex(current, context.filteredCommands.length, direction),
@@ -201,22 +240,28 @@ const handlePaletteKeyDown = (event: KeyboardEvent, context: KeyboardContext) =>
 };
 
 const useCommandPaletteKeyboard = ({
+  activeCommand,
   inputCommand,
   inputValue,
   activeIndex,
   filteredCommands,
+  clearCommandGroup,
   clearInputMode,
+  setKeyboardNavigationActive,
   runCommand,
   setSelectedIndex,
   onClose,
 }: KeyboardContext) => {
   useEffect(() => {
     const context: KeyboardContext = {
+      activeCommand,
       inputCommand,
       inputValue,
       activeIndex,
       filteredCommands,
+      clearCommandGroup,
       clearInputMode,
+      setKeyboardNavigationActive,
       runCommand,
       setSelectedIndex,
       onClose,
@@ -231,13 +276,16 @@ const useCommandPaletteKeyboard = ({
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [
+    activeCommand,
     activeIndex,
+    clearCommandGroup,
     clearInputMode,
     filteredCommands,
     inputCommand,
     inputValue,
     onClose,
     runCommand,
+    setKeyboardNavigationActive,
     setSelectedIndex,
   ]);
 };
@@ -246,9 +294,11 @@ const getEmptyStateMessage = (inputCommand: CommandPaletteItem | null) =>
   inputCommand?.input?.submitHint ?? 'Press Enter to confirm or Escape to go back.';
 
 function CommandPaletteResults({
+  activeCommand,
   inputCommand,
   filteredCommands,
   activeIndex,
+  keyboardNavigationActive,
   onSelectIndex,
   onRunCommand,
 }: CommandPaletteResultsProps) {
@@ -257,7 +307,11 @@ function CommandPaletteResults({
   }
 
   if (filteredCommands.length === 0) {
-    return <div className="command-palette-empty">No matching commands.</div>;
+    return (
+      <div className="command-palette-empty">
+        {activeCommand?.emptyStateMessage ?? 'No matching commands.'}
+      </div>
+    );
   }
 
   return (
@@ -268,7 +322,11 @@ function CommandPaletteResults({
           type="button"
           className={`command-palette-item ${index === activeIndex ? 'active' : ''}`}
           data-testid={`command-palette-item-${command.id}`}
-          onMouseEnter={() => onSelectIndex(index)}
+          onMouseEnter={() => {
+            if (!keyboardNavigationActive) {
+              onSelectIndex(index);
+            }
+          }}
           onClick={() => onRunCommand(command)}
           role="option"
           aria-selected={index === activeIndex}
@@ -288,17 +346,28 @@ function CommandPaletteResults({
 
 function CommandPaletteDialog({
   inputRef,
+  listRef,
+  activeCommand,
   inputCommand,
   inputValue,
   query,
   setActiveInputValue,
   filteredCommands,
   activeIndex,
+  keyboardNavigationActive,
+  setKeyboardNavigationActive,
   setSelectedIndex,
   runCommand,
 }: CommandPaletteDialogProps) {
-  const placeholder = inputCommand?.input?.placeholder ?? 'Search commands or boards...';
+  const placeholder =
+    inputCommand?.input?.placeholder ??
+    activeCommand?.searchPlaceholder ??
+    'Search commands or boards...';
   const activeValue = inputCommand ? inputValue : query;
+  const footerText =
+    inputCommand || activeCommand
+      ? 'Enter to confirm | Esc to go back'
+      : 'Ctrl+Shift+P / Cmd+Shift+P';
 
   const handleInputChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -321,49 +390,154 @@ function CommandPaletteDialog({
         />
       </div>
 
-      <div className="command-palette-list" role="listbox" aria-label="Command results">
+      <div
+        ref={listRef}
+        className="command-palette-list"
+        role="listbox"
+        aria-label="Command results"
+        onMouseMove={() => setKeyboardNavigationActive(false)}
+      >
         <CommandPaletteResults
+          activeCommand={activeCommand}
           inputCommand={inputCommand}
           filteredCommands={filteredCommands}
           activeIndex={activeIndex}
+          keyboardNavigationActive={keyboardNavigationActive}
           onSelectIndex={setSelectedIndex}
           onRunCommand={runCommand}
         />
       </div>
 
-      <div className="command-palette-footer">Ctrl+Shift+P / Cmd+Shift+P</div>
+      <div className="command-palette-footer">{footerText}</div>
     </div>
   );
 }
 
-export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
-  const [query, setQuery] = useState('');
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [inputCommandId, setInputCommandId] = useState<string | null>(null);
-  const [inputValue, setInputValue] = useState('');
-  const inputRef = useRef<HTMLInputElement | null>(null);
+interface UseCommandPaletteStateArgs {
+  commands: CommandPaletteItem[];
+  activeCommandId: string | null;
+  inputCommandId: string | null;
+  query: string;
+  selectedIndex: number;
+}
+
+const useCommandPaletteState = ({
+  commands,
+  activeCommandId,
+  inputCommandId,
+  query,
+  selectedIndex,
+}: UseCommandPaletteStateArgs) => {
+  const activeCommand = useMemo(
+    () =>
+      activeCommandId ? (commands.find((command) => command.id === activeCommandId) ?? null) : null,
+    [commands, activeCommandId],
+  );
+
+  const visibleCommands = useMemo(
+    () => activeCommand?.children ?? commands,
+    [activeCommand, commands],
+  );
 
   const inputCommand = useMemo(
     () =>
-      inputCommandId ? (commands.find((command) => command.id === inputCommandId) ?? null) : null,
-    [commands, inputCommandId],
+      inputCommandId
+        ? (visibleCommands.find((command) => command.id === inputCommandId) ?? null)
+        : null,
+    [visibleCommands, inputCommandId],
   );
 
   const filteredCommands = useMemo(() => {
     const normalizedQuery = normalize(query);
-    return commands.filter((command) => commandMatchesQuery(command, normalizedQuery));
-  }, [commands, query]);
+    return visibleCommands.filter((command) => commandMatchesQuery(command, normalizedQuery));
+  }, [visibleCommands, query]);
 
   const activeIndex = useMemo(
     () => getActiveIndex(selectedIndex, filteredCommands.length),
     [selectedIndex, filteredCommands.length],
   );
 
+  return { activeCommand, inputCommand, filteredCommands, activeIndex };
+};
+
+const useInitialInputFocus = (inputRef: RefObject<HTMLInputElement | null>) => {
+  useEffect(() => {
+    const frameId = focusInputOnAnimationFrame(inputRef);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [inputRef]);
+};
+
+const useInputCommandFocus = (
+  inputRef: RefObject<HTMLInputElement | null>,
+  inputCommand: CommandPaletteItem | null,
+) => {
+  useEffect(() => {
+    if (!inputCommand) {
+      return;
+    }
+
+    const frameId = focusInputOnAnimationFrame(inputRef, true);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [inputRef, inputCommand]);
+};
+
+const useActiveCommandScroll = (
+  listRef: RefObject<HTMLDivElement | null>,
+  inputCommand: CommandPaletteItem | null,
+  activeIndex: number,
+  filteredCommands: CommandPaletteItem[],
+) => {
+  useEffect(() => {
+    if (inputCommand || activeIndex < 0) {
+      return;
+    }
+
+    const listElement = listRef.current;
+    if (!listElement) {
+      return;
+    }
+
+    const activeElement = listElement.querySelector<HTMLElement>('.command-palette-item.active');
+    activeElement?.scrollIntoView({ block: 'nearest' });
+  }, [activeIndex, filteredCommands, inputCommand, listRef]);
+};
+
+const getActiveInputValueSetter = (
+  inputCommand: CommandPaletteItem | null,
+  setInputValue: Dispatch<SetStateAction<string>>,
+  setQuery: Dispatch<SetStateAction<string>>,
+) => (inputCommand ? setInputValue : setQuery);
+
+export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
+  const [activeCommandId, setActiveCommandId] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [inputCommandId, setInputCommandId] = useState<string | null>(null);
+  const [inputValue, setInputValue] = useState('');
+  const [keyboardNavigationActive, setKeyboardNavigationActive] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  const { activeCommand, inputCommand, filteredCommands, activeIndex } = useCommandPaletteState({
+    commands,
+    activeCommandId,
+    inputCommandId,
+    query,
+    selectedIndex,
+  });
+
   const runCommand = useCallback(
     (command: CommandPaletteItem | undefined, providedInput?: string) => {
       runCommandAction({
         command,
         providedInput,
+        setActiveCommandId,
+        setQuery,
+        setSelectedIndex,
         setInputCommandId,
         setInputValue,
         onClose,
@@ -377,36 +551,31 @@ export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
     setInputValue('');
   }, []);
 
-  const setActiveInputValue = inputCommand ? setInputValue : setQuery;
+  const clearCommandGroup = useCallback(() => {
+    setActiveCommandId(null);
+    setQuery('');
+    setSelectedIndex(0);
+  }, []);
+
+  const setActiveInputValue = getActiveInputValueSetter(inputCommand, setInputValue, setQuery);
 
   useCommandPaletteKeyboard({
+    activeCommand,
     inputCommand,
     inputValue,
     activeIndex,
     filteredCommands,
+    clearCommandGroup,
     clearInputMode,
+    setKeyboardNavigationActive,
     runCommand,
     setSelectedIndex,
     onClose,
   });
 
-  useEffect(() => {
-    const frameId = focusInputOnAnimationFrame(inputRef);
-    return () => {
-      window.cancelAnimationFrame(frameId);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!inputCommand) {
-      return;
-    }
-
-    const frameId = focusInputOnAnimationFrame(inputRef, true);
-    return () => {
-      window.cancelAnimationFrame(frameId);
-    };
-  }, [inputCommand]);
+  useInitialInputFocus(inputRef);
+  useInputCommandFocus(inputRef, inputCommand);
+  useActiveCommandScroll(listRef, inputCommand, activeIndex, filteredCommands);
 
   const handleOverlayMouseDown = useCallback(
     (event: MouseEvent<HTMLDivElement>) => {
@@ -421,12 +590,16 @@ export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
     <div className="command-palette-overlay" onMouseDown={handleOverlayMouseDown}>
       <CommandPaletteDialog
         inputRef={inputRef}
+        listRef={listRef}
+        activeCommand={activeCommand}
         inputCommand={inputCommand}
         inputValue={inputValue}
         query={query}
         setActiveInputValue={setActiveInputValue}
         filteredCommands={filteredCommands}
         activeIndex={activeIndex}
+        keyboardNavigationActive={keyboardNavigationActive}
+        setKeyboardNavigationActive={setKeyboardNavigationActive}
         setSelectedIndex={setSelectedIndex}
         runCommand={runCommand}
       />
