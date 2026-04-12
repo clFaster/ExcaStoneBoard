@@ -307,6 +307,7 @@ jobs:
       - name: Publish release assets
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
         shell: bash
         run: |
