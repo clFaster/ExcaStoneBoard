@@ -51,7 +51,10 @@ pub(crate) fn set_ui_preference(app: AppHandle, key: String, value: bool) -> Res
     set_setting(&conn, setting_key, Some(setting_value))
 }
 
-fn parse_optional_boolean_setting(value: Option<String>, key: &str) -> Result<Option<bool>, String> {
+fn parse_optional_boolean_setting(
+    value: Option<String>,
+    key: &str,
+) -> Result<Option<bool>, String> {
     let Some(raw) = value else {
         return Ok(None);
     };
