@@ -245,6 +245,10 @@ interface AppLayoutProps {
   exportDisabled: boolean;
   boardsExportBusy: AppController['boardsExportBusy'];
   boardsImportBusy: AppController['boardsImportBusy'];
+  hideExportRow: AppController['hideExportRow'];
+  showTimestamps: AppController['showTimestamps'];
+  setHideExportRow: AppController['setHideExportRow'];
+  setShowTimestamps: AppController['setShowTimestamps'];
   sidebarCollapsed: AppController['sidebarCollapsed'];
   toggleSidebar: AppController['toggleSidebar'];
   activeBoardName: AppController['activeBoardName'];
@@ -277,6 +281,10 @@ function AppLayout({
   exportDisabled,
   boardsExportBusy,
   boardsImportBusy,
+  hideExportRow,
+  showTimestamps,
+  setHideExportRow,
+  setShowTimestamps,
   sidebarCollapsed,
   toggleSidebar,
   activeBoardName,
@@ -310,6 +318,10 @@ function AppLayout({
         exportDisabled={exportDisabled}
         boardsExporting={boardsExportBusy}
         boardsImporting={boardsImportBusy}
+        hideExportRow={hideExportRow}
+        onHideExportRowChange={setHideExportRow}
+        showTimestamps={showTimestamps}
+        onShowTimestampsChange={setShowTimestamps}
         isCollapsed={sidebarCollapsed}
         onToggleCollapse={toggleSidebar}
       />
@@ -348,6 +360,10 @@ function App() {
     boardsExportBusy,
     boardsImportBusy,
     settingsError,
+    hideExportRow,
+    showTimestamps,
+    setHideExportRow,
+    setShowTimestamps,
     excalidrawRef,
     thumbnails,
     activeBoardName,
@@ -443,6 +459,10 @@ function App() {
       exportDisabled={exportDisabled}
       boardsExportBusy={boardsExportBusy}
       boardsImportBusy={boardsImportBusy}
+      hideExportRow={hideExportRow}
+      showTimestamps={showTimestamps}
+      setHideExportRow={setHideExportRow}
+      setShowTimestamps={setShowTimestamps}
       sidebarCollapsed={sidebarCollapsed}
       toggleSidebar={toggleSidebar}
       activeBoardName={activeBoardName}

@@ -84,6 +84,10 @@ interface BoardListProps {
   exportDisabled: boolean;
   boardsExporting: boolean;
   boardsImporting: boolean;
+  hideExportRow: boolean;
+  onHideExportRowChange: (value: boolean) => void;
+  showTimestamps: boolean;
+  onShowTimestampsChange: (value: boolean) => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
 }
@@ -99,11 +103,6 @@ interface DragState {
 interface ImportBoardEntry extends BoardsExportEntry {
   key: string;
   index: number;
-}
-
-interface UiPreferences {
-  hide_export_row: boolean;
-  show_timestamps: boolean;
 }
 
 // =============================================================================
@@ -479,6 +478,10 @@ export function BoardList({
   exportDisabled,
   boardsExporting,
   boardsImporting,
+  hideExportRow,
+  onHideExportRowChange,
+  showTimestamps,
+  onShowTimestampsChange,
   isCollapsed,
   onToggleCollapse,
 }: BoardListProps) {
@@ -504,23 +507,6 @@ export function BoardList({
       return {};
     }
   });
-  const [hideExportRow, setHideExportRow] = useState(() => {
-    try {
-      const stored = localStorage.getItem('boards.hideExportRow');
-      return stored ? Boolean(JSON.parse(stored)) : false;
-    } catch {
-      return false;
-    }
-  });
-  const [showTimestamps, setShowTimestamps] = useState(() => {
-    try {
-      const stored = localStorage.getItem('boards.showTimestamps');
-      return stored ? Boolean(JSON.parse(stored)) : true;
-    } catch {
-      return true;
-    }
-  });
-  const [uiPreferencesReady, setUiPreferencesReady] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importBoards, setImportBoards] = useState<ImportBoardEntry[]>([]);
   const [importSelection, setImportSelection] = useState<Record<string, boolean>>({});
@@ -635,69 +621,6 @@ export function BoardList({
       // ignore storage errors
     }
   }, [collapsedFolders]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('boards.hideExportRow', JSON.stringify(hideExportRow));
-    } catch {
-      // ignore storage errors
-    }
-  }, [hideExportRow]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('boards.showTimestamps', JSON.stringify(showTimestamps));
-    } catch {
-      // ignore storage errors
-    }
-  }, [showTimestamps]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    void invoke<UiPreferences>('get_ui_preferences')
-      .then((preferences) => {
-        if (cancelled) return;
-        setHideExportRow(Boolean(preferences.hide_export_row));
-        setShowTimestamps(Boolean(preferences.show_timestamps));
-        setUiPreferencesReady(true);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        console.warn('Failed to load UI preferences from backend:', error);
-        setUiPreferencesReady(true);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!uiPreferencesReady) {
-      return;
-    }
-
-    void invoke('set_ui_preference', {
-      key: 'hide_export_row',
-      value: hideExportRow,
-    }).catch((error) => {
-      console.warn('Failed to persist hide export row preference:', error);
-    });
-  }, [hideExportRow, uiPreferencesReady]);
-
-  useEffect(() => {
-    if (!uiPreferencesReady) {
-      return;
-    }
-
-    void invoke('set_ui_preference', {
-      key: 'show_timestamps',
-      value: showTimestamps,
-    }).catch((error) => {
-      console.warn('Failed to persist show timestamps preference:', error);
-    });
-  }, [showTimestamps, uiPreferencesReady]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -1507,7 +1430,7 @@ export function BoardList({
                       type="checkbox"
                       data-testid="toggle-hide-export-row"
                       checked={hideExportRow}
-                      onChange={(e) => setHideExportRow(e.target.checked)}
+                      onChange={(e) => onHideExportRowChange(e.target.checked)}
                     />
                     <span className="toggle-track" aria-hidden="true"></span>
                     <span className="toggle-text">Hide export/copy buttons</span>
@@ -1523,7 +1446,7 @@ export function BoardList({
                       type="checkbox"
                       data-testid="toggle-show-timestamps"
                       checked={showTimestamps}
-                      onChange={(e) => setShowTimestamps(e.target.checked)}
+                      onChange={(e) => onShowTimestampsChange(e.target.checked)}
                     />
                     <span className="toggle-track" aria-hidden="true"></span>
                     <span className="toggle-text">Show timestamps in sidebar</span>

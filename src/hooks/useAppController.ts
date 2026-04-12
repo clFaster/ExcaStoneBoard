@@ -3,12 +3,11 @@ import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
 import type { ExcalidrawFrameHandle } from '../components/ExcalidrawFrame';
 import { useBoards } from './useBoards';
+import { useUiPreferences } from './useUiPreferences';
 import type { BoardListItem, BoardsImportResult, ExcalidrawData } from '../types/board';
 
 type FrameExportAction = 'exportPng' | 'copyPng' | 'exportSvg';
 type ExcalidrawRef = { current: ExcalidrawFrameHandle | null };
-
-const SIDEBAR_COLLAPSED_STORAGE_KEY = 'boards.sidebarCollapsed';
 
 const flattenBoards = (items: BoardListItem[]) =>
   items.flatMap((item) => (item.type === 'board' ? [item] : item.items));
@@ -35,33 +34,6 @@ const buildBoardsExportName = () => {
   const pad = (value: number) => String(value).padStart(2, '0');
   const dateStamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   return `excastoneboards-${dateStamp}.json`;
-};
-
-const getStoredSidebarCollapsed = () => {
-  try {
-    const stored = localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY);
-    return stored ? Boolean(JSON.parse(stored)) : false;
-  } catch {
-    return false;
-  }
-};
-
-const useSidebarCollapsed = () => {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(getStoredSidebarCollapsed);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, JSON.stringify(sidebarCollapsed));
-    } catch {
-      // ignore storage errors
-    }
-  }, [sidebarCollapsed]);
-
-  const toggleSidebar = useCallback(() => {
-    setSidebarCollapsed((prev) => !prev);
-  }, []);
-
-  return { sidebarCollapsed, toggleSidebar };
 };
 
 const useCurrentBoardData = (
@@ -320,7 +292,14 @@ export function useAppController() {
     setActiveBoard,
     saveBoardThumbnail,
   } = boards;
-  const { sidebarCollapsed, toggleSidebar } = useSidebarCollapsed();
+  const {
+    sidebarCollapsed,
+    toggleSidebar,
+    hideExportRow,
+    showTimestamps,
+    setHideExportRow,
+    setShowTimestamps,
+  } = useUiPreferences();
 
   const excalidrawRef = useRef<ExcalidrawFrameHandle | null>(null);
 
@@ -367,6 +346,10 @@ export function useAppController() {
     handleExportBoards,
     handleImportBoards,
     handleSelectBoard,
+    hideExportRow,
+    showTimestamps,
+    setHideExportRow,
+    setShowTimestamps,
     sidebarCollapsed,
     toggleSidebar,
   };
