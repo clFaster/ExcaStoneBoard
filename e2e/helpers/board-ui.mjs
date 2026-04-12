@@ -30,8 +30,21 @@ export function uniqueBoardName(prefix) {
 }
 
 export async function waitForAppReady() {
-  const createBoardInput = await $(SELECTORS.createBoardInput);
-  await createBoardInput.waitForDisplayed({ timeout: 30000 });
+  await browser.waitUntil(
+    async () => {
+      const createBoardInput = await $(SELECTORS.createBoardInput);
+      if (await createBoardInput.isDisplayed().catch(() => false)) {
+        return true;
+      }
+
+      const collapsedSidebar = await $('.board-list.collapsed');
+      return collapsedSidebar.isDisplayed().catch(() => false);
+    },
+    {
+      timeout: 30000,
+      timeoutMsg: 'Expected app to become ready (expanded or collapsed sidebar view).',
+    },
+  );
 }
 
 export async function createBoard(name) {
@@ -141,13 +154,16 @@ export async function createBoardFromCommandPalette(name) {
   await createBoardItem.waitForDisplayed({ timeout: 10000 });
   await browser.keys('Enter');
 
-  await browser.waitUntil(async () => {
-    const placeholder = await paletteInput.getAttribute('placeholder');
-    return placeholder === 'Board name';
-  }, {
-    timeout: 10000,
-    timeoutMsg: 'Expected command palette to switch to board-name input mode.',
-  });
+  await browser.waitUntil(
+    async () => {
+      const placeholder = await paletteInput.getAttribute('placeholder');
+      return placeholder === 'Board name';
+    },
+    {
+      timeout: 10000,
+      timeoutMsg: 'Expected command palette to switch to board-name input mode.',
+    },
+  );
 
   await paletteInput.setValue(name);
   await browser.keys('Enter');
@@ -192,6 +208,37 @@ export async function assertExportRowHidden() {
   if (exists) {
     throw new Error('Expected export row to be hidden, but it is visible.');
   }
+}
+
+async function isSidebarCollapsed() {
+  const collapsedSidebar = await $('.board-list.collapsed');
+  return collapsedSidebar.isExisting();
+}
+
+export async function setSidebarCollapsed(collapsed) {
+  const currentlyCollapsed = await isSidebarCollapsed();
+  if (currentlyCollapsed === collapsed) {
+    return;
+  }
+
+  const toggleSelector = collapsed
+    ? 'button[title="Collapse sidebar"]'
+    : 'button[title="Expand sidebar"]';
+  const toggleButton = await $(toggleSelector);
+  await toggleButton.waitForClickable({ timeout: 10000 });
+  await toggleButton.click();
+
+  await browser.waitUntil(async () => (await isSidebarCollapsed()) === collapsed, {
+    timeout: 10000,
+    timeoutMsg: `Sidebar did not switch to ${collapsed ? 'collapsed' : 'expanded'} state.`,
+  });
+}
+
+export async function assertSidebarCollapsed() {
+  await browser.waitUntil(async () => isSidebarCollapsed(), {
+    timeout: 10000,
+    timeoutMsg: 'Expected sidebar to be collapsed, but it remained expanded.',
+  });
 }
 
 export async function restartAppSession() {

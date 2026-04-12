@@ -26,3 +26,4 @@ scripts/
 
 .vs/
 .system-test-data/
+.wdio-artifacts/

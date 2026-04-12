@@ -157,6 +157,86 @@ const createCommandPaletteCommands = ({
   return [...commands, ...openBoardCommands];
 };
 
+interface UseCommandPaletteControllerConfig {
+  items: AppController['items'];
+  activeBoardId: AppController['activeBoardId'];
+  boardDataLoading: AppController['boardDataLoading'];
+  exportBusy: AppController['exportBusy'];
+  createBoard: AppController['createBoard'];
+  sidebarCollapsed: AppController['sidebarCollapsed'];
+  toggleSidebar: AppController['toggleSidebar'];
+  handleExportPng: AppController['handleExportPng'];
+  handleCopyPng: AppController['handleCopyPng'];
+  handleExportSvg: AppController['handleExportSvg'];
+  handleSelectBoard: AppController['handleSelectBoard'];
+}
+
+const useCommandPaletteController = ({
+  items,
+  activeBoardId,
+  boardDataLoading,
+  exportBusy,
+  createBoard,
+  sidebarCollapsed,
+  toggleSidebar,
+  handleExportPng,
+  handleCopyPng,
+  handleExportSvg,
+  handleSelectBoard,
+}: UseCommandPaletteControllerConfig) => {
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+
+  const allBoards = useMemo(() => flattenBoardsForPalette(items), [items]);
+
+  const closeCommandPalette = useCallback(() => {
+    setCommandPaletteOpen(false);
+  }, []);
+
+  const toggleCommandPalette = useCallback(() => {
+    setCommandPaletteOpen((previous) => !previous);
+  }, []);
+
+  useCommandPaletteShortcut(toggleCommandPalette);
+
+  const requestOpenSettings = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('boardlist:open-settings'));
+  }, []);
+
+  const commandPaletteCommands = useMemo(
+    () =>
+      createCommandPaletteCommands({
+        activeBoardId,
+        boardDataLoading,
+        exportBusy,
+        createBoard,
+        requestOpenSettings,
+        sidebarCollapsed,
+        toggleSidebar,
+        handleExportPng,
+        handleCopyPng,
+        handleExportSvg,
+        handleSelectBoard,
+        allBoards,
+      }),
+    [
+      activeBoardId,
+      allBoards,
+      boardDataLoading,
+      createBoard,
+      exportBusy,
+      handleCopyPng,
+      handleExportPng,
+      handleExportSvg,
+      handleSelectBoard,
+      requestOpenSettings,
+      sidebarCollapsed,
+      toggleSidebar,
+    ],
+  );
+
+  return { commandPaletteOpen, closeCommandPalette, commandPaletteCommands };
+};
+
 function FullScreenLoading({ message }: { message: string }) {
   return (
     <div className="app loading-screen">
@@ -245,6 +325,10 @@ interface AppLayoutProps {
   exportDisabled: boolean;
   boardsExportBusy: AppController['boardsExportBusy'];
   boardsImportBusy: AppController['boardsImportBusy'];
+  hideExportRow: AppController['hideExportRow'];
+  showTimestamps: AppController['showTimestamps'];
+  setHideExportRow: AppController['setHideExportRow'];
+  setShowTimestamps: AppController['setShowTimestamps'];
   sidebarCollapsed: AppController['sidebarCollapsed'];
   toggleSidebar: AppController['toggleSidebar'];
   activeBoardName: AppController['activeBoardName'];
@@ -277,6 +361,10 @@ function AppLayout({
   exportDisabled,
   boardsExportBusy,
   boardsImportBusy,
+  hideExportRow,
+  showTimestamps,
+  setHideExportRow,
+  setShowTimestamps,
   sidebarCollapsed,
   toggleSidebar,
   activeBoardName,
@@ -310,6 +398,10 @@ function AppLayout({
         exportDisabled={exportDisabled}
         boardsExporting={boardsExportBusy}
         boardsImporting={boardsImportBusy}
+        hideExportRow={hideExportRow}
+        onHideExportRowChange={setHideExportRow}
+        showTimestamps={showTimestamps}
+        onShowTimestampsChange={setShowTimestamps}
         isCollapsed={sidebarCollapsed}
         onToggleCollapse={toggleSidebar}
       />
@@ -348,6 +440,10 @@ function App() {
     boardsExportBusy,
     boardsImportBusy,
     settingsError,
+    hideExportRow,
+    showTimestamps,
+    setHideExportRow,
+    setShowTimestamps,
     excalidrawRef,
     thumbnails,
     activeBoardName,
@@ -363,55 +459,20 @@ function App() {
     toggleSidebar,
   } = useAppController();
 
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-
-  const allBoards = useMemo(() => flattenBoardsForPalette(items), [items]);
-
-  const closeCommandPalette = useCallback(() => {
-    setCommandPaletteOpen(false);
-  }, []);
-
-  const toggleCommandPalette = useCallback(() => {
-    setCommandPaletteOpen((previous) => !previous);
-  }, []);
-
-  useCommandPaletteShortcut(toggleCommandPalette);
-
-  const requestOpenSettings = useCallback(() => {
-    window.dispatchEvent(new CustomEvent('boardlist:open-settings'));
-  }, []);
-
-  const commandPaletteCommands = useMemo(
-    () =>
-      createCommandPaletteCommands({
-        activeBoardId,
-        boardDataLoading,
-        exportBusy,
-        createBoard,
-        requestOpenSettings,
-        sidebarCollapsed,
-        toggleSidebar,
-        handleExportPng,
-        handleCopyPng,
-        handleExportSvg,
-        handleSelectBoard,
-        allBoards,
-      }),
-    [
+  const { commandPaletteOpen, closeCommandPalette, commandPaletteCommands } =
+    useCommandPaletteController({
+      items,
       activeBoardId,
-      allBoards,
       boardDataLoading,
-      createBoard,
       exportBusy,
-      handleCopyPng,
-      handleExportPng,
-      handleExportSvg,
-      handleSelectBoard,
-      requestOpenSettings,
+      createBoard,
       sidebarCollapsed,
       toggleSidebar,
-    ],
-  );
+      handleExportPng,
+      handleCopyPng,
+      handleExportSvg,
+      handleSelectBoard,
+    });
 
   const exportDisabled = useMemo(
     () => shouldDisableExportActions(activeBoardId, boardDataLoading, exportBusy),
@@ -443,6 +504,10 @@ function App() {
       exportDisabled={exportDisabled}
       boardsExportBusy={boardsExportBusy}
       boardsImportBusy={boardsImportBusy}
+      hideExportRow={hideExportRow}
+      showTimestamps={showTimestamps}
+      setHideExportRow={setHideExportRow}
+      setShowTimestamps={setShowTimestamps}
       sidebarCollapsed={sidebarCollapsed}
       toggleSidebar={toggleSidebar}
       activeBoardName={activeBoardName}

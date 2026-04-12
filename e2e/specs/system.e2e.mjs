@@ -1,4 +1,5 @@
 import {
+  assertSidebarCollapsed,
   assertExportRowHidden,
   closeSettings,
   closeSettingsWithEscape,
@@ -9,6 +10,7 @@ import {
   openSettingsFromCommandPalette,
   renameBoard,
   restartAppSession,
+  setSidebarCollapsed,
   setHideExportRow,
   uniqueBoardName,
   waitForAppReady,
@@ -65,6 +67,17 @@ describe('System suite', () => {
     await openSettings();
     await setHideExportRow(false);
     await closeSettings();
+  });
+
+  it('settings persistence: keeps sidebar collapsed after app restart', async () => {
+    await waitForAppReady();
+    await setSidebarCollapsed(false);
+    await setSidebarCollapsed(true);
+
+    await restartAppSession();
+    await assertSidebarCollapsed();
+
+    await setSidebarCollapsed(false);
   });
 
   it('command palette: creates board and opens settings', async () => {
