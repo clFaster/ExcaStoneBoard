@@ -10,6 +10,7 @@ const SELECTORS = {
   commandPalette: '.command-palette',
   commandPaletteInput: '[data-testid="command-palette-input"]',
   commandPaletteCreateBoardItem: '[data-testid="command-palette-item-create-board"]',
+  commandPaletteOpenBoardItem: '[data-testid="command-palette-item-open-board"]',
   commandPaletteOpenSettingsItem: '[data-testid="command-palette-item-open-settings"]',
 };
 
@@ -23,6 +24,10 @@ function boardMenuButtonXpath(name) {
 
 function boardItemXpath(name) {
   return `//div[contains(@class, "board-item")][.//span[contains(@class, "board-name") and normalize-space()="${name}"]]`;
+}
+
+function activeBoardItemXpath(name) {
+  return `//div[contains(@class, "board-item") and contains(@class, "active")][.//span[contains(@class, "board-name") and normalize-space()="${name}"]]`;
 }
 
 export function uniqueBoardName(prefix) {
@@ -61,6 +66,17 @@ export async function createBoard(name) {
 export async function waitForBoardVisible(name) {
   const boardName = await $(boardNameXpath(name));
   await boardName.waitForDisplayed({ timeout: 10000 });
+}
+
+export async function selectBoard(name) {
+  const boardItem = await $(boardItemXpath(name));
+  await boardItem.waitForDisplayed({ timeout: 10000 });
+  await boardItem.click();
+}
+
+export async function assertActiveBoard(name) {
+  const activeBoard = await $(activeBoardItemXpath(name));
+  await activeBoard.waitForDisplayed({ timeout: 10000 });
 }
 
 export async function openBoardMenu(name) {
@@ -183,6 +199,36 @@ export async function openSettingsFromCommandPalette() {
 
   const settingsModal = await $(SELECTORS.settingsModal);
   await settingsModal.waitForDisplayed({ timeout: 10000 });
+}
+
+export async function openBoardFromCommandPalette(name) {
+  await openCommandPalette();
+
+  const paletteInput = await $(SELECTORS.commandPaletteInput);
+  await paletteInput.waitForDisplayed({ timeout: 10000 });
+  await paletteInput.setValue('open board');
+
+  const openBoardItem = await $(SELECTORS.commandPaletteOpenBoardItem);
+  await openBoardItem.waitForDisplayed({ timeout: 10000 });
+  await browser.keys('Enter');
+
+  await browser.waitUntil(
+    async () => {
+      const placeholder = await paletteInput.getAttribute('placeholder');
+      return placeholder === 'Type to filter boards...';
+    },
+    {
+      timeout: 10000,
+      timeoutMsg: 'Expected command palette to switch to board-selection mode.',
+    },
+  );
+
+  await paletteInput.setValue(name);
+  await browser.keys('Enter');
+
+  const commandPalette = await $(SELECTORS.commandPalette);
+  await commandPalette.waitForDisplayed({ reverse: true, timeout: 10000 });
+  await assertActiveBoard(name);
 }
 
 export async function setHideExportRow(enabled) {

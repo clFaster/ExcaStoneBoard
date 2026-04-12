@@ -10,6 +10,7 @@ import './App.css';
 const ExcalidrawFrame = lazy(() => import('./components/ExcalidrawFrame'));
 
 type AppController = ReturnType<typeof useAppController>;
+type PaletteBoardEntry = ReturnType<typeof flattenBoardsForPalette>[number];
 
 const flattenBoardsForPalette = (items: BoardListItem[]) =>
   items.flatMap((item) =>
@@ -21,6 +22,11 @@ const flattenBoardsForPalette = (items: BoardListItem[]) =>
           folderName: item.name,
         })),
   );
+
+const getBoardLocationDescription = (entry: PaletteBoardEntry) =>
+  entry.folderName ? `Folder: ${entry.folderName}` : 'Top-level board';
+
+const noopCommandAction = () => {};
 
 const shouldDisableExportActions = (
   activeBoardId: string | null,
@@ -55,13 +61,22 @@ interface CommandPaletteCommandsConfig {
   activeBoardId: AppController['activeBoardId'];
   boardDataLoading: AppController['boardDataLoading'];
   exportBusy: AppController['exportBusy'];
+  boardsExportBusy: AppController['boardsExportBusy'];
+  boardsImportBusy: AppController['boardsImportBusy'];
   createBoard: AppController['createBoard'];
+  renameBoard: AppController['renameBoard'];
+  deleteBoard: AppController['deleteBoard'];
+  duplicateBoard: AppController['duplicateBoard'];
   requestOpenSettings: () => void;
+  requestOpenImportBoards: () => void;
   sidebarCollapsed: AppController['sidebarCollapsed'];
+  showTimestamps: AppController['showTimestamps'];
+  setShowTimestamps: AppController['setShowTimestamps'];
   toggleSidebar: AppController['toggleSidebar'];
   handleExportPng: AppController['handleExportPng'];
   handleCopyPng: AppController['handleCopyPng'];
   handleExportSvg: AppController['handleExportSvg'];
+  handleExportBoards: AppController['handleExportBoards'];
   handleSelectBoard: AppController['handleSelectBoard'];
   allBoards: ReturnType<typeof flattenBoardsForPalette>;
 }
@@ -70,13 +85,22 @@ const createCommandPaletteCommands = ({
   activeBoardId,
   boardDataLoading,
   exportBusy,
+  boardsExportBusy,
+  boardsImportBusy,
   createBoard,
+  renameBoard,
+  deleteBoard,
+  duplicateBoard,
   requestOpenSettings,
+  requestOpenImportBoards,
   sidebarCollapsed,
+  showTimestamps,
+  setShowTimestamps,
   toggleSidebar,
   handleExportPng,
   handleCopyPng,
   handleExportSvg,
+  handleExportBoards,
   handleSelectBoard,
   allBoards,
 }: CommandPaletteCommandsConfig): CommandPaletteItem[] => {
@@ -85,6 +109,71 @@ const createCommandPaletteCommands = ({
     boardDataLoading,
     exportBusy,
   );
+  const hasBoards = allBoards.length > 0;
+  const boardSearchEmptyState = hasBoards ? 'No matching boards.' : 'No boards available.';
+
+  const openBoardCommands = allBoards.map<CommandPaletteItem>((entry) => ({
+    id: `open-board-${entry.boardId}`,
+    label: entry.boardName,
+    description: getBoardLocationDescription(entry),
+    keywords: `${entry.boardName} ${entry.folderName ?? ''}`,
+    action: async () => {
+      await handleSelectBoard(entry.boardId);
+    },
+  }));
+
+  const renameBoardCommands = allBoards.map<CommandPaletteItem>((entry) => ({
+    id: `rename-board-${entry.boardId}`,
+    label: entry.boardName,
+    description: getBoardLocationDescription(entry),
+    keywords: `rename board ${entry.boardName} ${entry.folderName ?? ''}`,
+    input: {
+      placeholder: `New name for "${entry.boardName}"`,
+      initialValue: entry.boardName,
+      submitHint: 'Press Enter to rename the board.',
+    },
+    action: async (inputValue) => {
+      if (!inputValue) {
+        return;
+      }
+
+      await renameBoard(entry.boardId, inputValue);
+    },
+  }));
+
+  const duplicateBoardCommands = allBoards.map<CommandPaletteItem>((entry) => ({
+    id: `duplicate-board-${entry.boardId}`,
+    label: entry.boardName,
+    description: getBoardLocationDescription(entry),
+    keywords: `duplicate board ${entry.boardName} ${entry.folderName ?? ''}`,
+    input: {
+      placeholder: `Copy name for "${entry.boardName}"`,
+      initialValue: `${entry.boardName} (Copy)`,
+      submitHint: 'Press Enter to duplicate the board.',
+    },
+    action: async (inputValue) => {
+      if (!inputValue) {
+        return;
+      }
+
+      await duplicateBoard(entry.boardId, inputValue);
+    },
+  }));
+
+  const deleteBoardCommands = allBoards.map<CommandPaletteItem>((entry) => ({
+    id: `delete-board-${entry.boardId}`,
+    label: entry.boardName,
+    description: getBoardLocationDescription(entry),
+    keywords: `delete board remove ${entry.boardName} ${entry.folderName ?? ''}`,
+    action: async () => {
+      const shouldDelete = window.confirm(`Delete "${entry.boardName}"?`);
+      if (!shouldDelete) {
+        return;
+      }
+
+      await deleteBoard(entry.boardId);
+    },
+  }));
 
   const commands: CommandPaletteItem[] = [
     {
@@ -103,6 +192,73 @@ const createCommandPaletteCommands = ({
 
         await createBoard(inputValue);
       },
+    },
+    {
+      id: 'open-board',
+      label: 'Open board',
+      description: hasBoards ? 'Select a board from a filterable list' : 'No boards available',
+      keywords: 'open board switch select',
+      disabled: !hasBoards,
+      searchPlaceholder: 'Type to filter boards...',
+      emptyStateMessage: boardSearchEmptyState,
+      children: openBoardCommands,
+      action: noopCommandAction,
+    },
+    {
+      id: 'rename-board',
+      label: 'Rename board',
+      description: hasBoards ? 'Pick a board, then enter a new name' : 'No boards available',
+      keywords: 'rename board',
+      disabled: !hasBoards,
+      searchPlaceholder: 'Select board to rename...',
+      emptyStateMessage: boardSearchEmptyState,
+      children: renameBoardCommands,
+      action: noopCommandAction,
+    },
+    {
+      id: 'duplicate-board',
+      label: 'Duplicate board',
+      description: hasBoards ? 'Pick a board, then name the copy' : 'No boards available',
+      keywords: 'duplicate board copy',
+      disabled: !hasBoards,
+      searchPlaceholder: 'Select board to duplicate...',
+      emptyStateMessage: boardSearchEmptyState,
+      children: duplicateBoardCommands,
+      action: noopCommandAction,
+    },
+    {
+      id: 'delete-board',
+      label: 'Delete board',
+      description: hasBoards ? 'Pick a board to delete' : 'No boards available',
+      keywords: 'delete board remove',
+      disabled: !hasBoards,
+      searchPlaceholder: 'Select board to delete...',
+      emptyStateMessage: boardSearchEmptyState,
+      children: deleteBoardCommands,
+      action: noopCommandAction,
+    },
+    {
+      id: 'export-boards',
+      label: 'Export boards',
+      description: 'Export all boards to a JSON file',
+      keywords: 'boards export backup',
+      disabled: boardsExportBusy,
+      action: handleExportBoards,
+    },
+    {
+      id: 'import-boards',
+      label: 'Import boards',
+      description: 'Import boards from a JSON file',
+      keywords: 'boards import restore',
+      disabled: boardsImportBusy,
+      action: requestOpenImportBoards,
+    },
+    {
+      id: 'toggle-timestamps',
+      label: showTimestamps ? 'Hide sidebar timestamps' : 'Show sidebar timestamps',
+      description: 'Toggle board timestamps in the sidebar',
+      keywords: 'sidebar timestamps time dates',
+      action: () => setShowTimestamps(!showTimestamps),
     },
     {
       id: 'open-settings',
@@ -144,17 +300,7 @@ const createCommandPaletteCommands = ({
     },
   ];
 
-  const openBoardCommands = allBoards.map<CommandPaletteItem>((entry) => ({
-    id: `open-board-${entry.boardId}`,
-    label: `Open board: ${entry.boardName}`,
-    description: entry.folderName ? `Folder: ${entry.folderName}` : 'Top-level board',
-    keywords: `open board ${entry.boardName} ${entry.folderName ?? ''}`,
-    action: async () => {
-      await handleSelectBoard(entry.boardId);
-    },
-  }));
-
-  return [...commands, ...openBoardCommands];
+  return commands;
 };
 
 interface UseCommandPaletteControllerConfig {
@@ -162,12 +308,20 @@ interface UseCommandPaletteControllerConfig {
   activeBoardId: AppController['activeBoardId'];
   boardDataLoading: AppController['boardDataLoading'];
   exportBusy: AppController['exportBusy'];
+  boardsExportBusy: AppController['boardsExportBusy'];
+  boardsImportBusy: AppController['boardsImportBusy'];
   createBoard: AppController['createBoard'];
+  renameBoard: AppController['renameBoard'];
+  deleteBoard: AppController['deleteBoard'];
+  duplicateBoard: AppController['duplicateBoard'];
   sidebarCollapsed: AppController['sidebarCollapsed'];
+  showTimestamps: AppController['showTimestamps'];
+  setShowTimestamps: AppController['setShowTimestamps'];
   toggleSidebar: AppController['toggleSidebar'];
   handleExportPng: AppController['handleExportPng'];
   handleCopyPng: AppController['handleCopyPng'];
   handleExportSvg: AppController['handleExportSvg'];
+  handleExportBoards: AppController['handleExportBoards'];
   handleSelectBoard: AppController['handleSelectBoard'];
 }
 
@@ -176,12 +330,20 @@ const useCommandPaletteController = ({
   activeBoardId,
   boardDataLoading,
   exportBusy,
+  boardsExportBusy,
+  boardsImportBusy,
   createBoard,
+  renameBoard,
+  deleteBoard,
+  duplicateBoard,
   sidebarCollapsed,
+  showTimestamps,
+  setShowTimestamps,
   toggleSidebar,
   handleExportPng,
   handleCopyPng,
   handleExportSvg,
+  handleExportBoards,
   handleSelectBoard,
 }: UseCommandPaletteControllerConfig) => {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -202,19 +364,32 @@ const useCommandPaletteController = ({
     window.dispatchEvent(new CustomEvent('boardlist:open-settings'));
   }, []);
 
+  const requestOpenImportBoards = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('boardlist:import-boards'));
+  }, []);
+
   const commandPaletteCommands = useMemo(
     () =>
       createCommandPaletteCommands({
         activeBoardId,
         boardDataLoading,
         exportBusy,
+        boardsExportBusy,
+        boardsImportBusy,
         createBoard,
+        renameBoard,
+        deleteBoard,
+        duplicateBoard,
         requestOpenSettings,
+        requestOpenImportBoards,
         sidebarCollapsed,
+        showTimestamps,
+        setShowTimestamps,
         toggleSidebar,
         handleExportPng,
         handleCopyPng,
         handleExportSvg,
+        handleExportBoards,
         handleSelectBoard,
         allBoards,
       }),
@@ -222,14 +397,23 @@ const useCommandPaletteController = ({
       activeBoardId,
       allBoards,
       boardDataLoading,
+      boardsExportBusy,
+      boardsImportBusy,
       createBoard,
+      deleteBoard,
+      duplicateBoard,
       exportBusy,
       handleCopyPng,
+      handleExportBoards,
       handleExportPng,
       handleExportSvg,
       handleSelectBoard,
+      renameBoard,
+      requestOpenImportBoards,
       requestOpenSettings,
       sidebarCollapsed,
+      setShowTimestamps,
+      showTimestamps,
       toggleSidebar,
     ],
   );
@@ -465,12 +649,20 @@ function App() {
       activeBoardId,
       boardDataLoading,
       exportBusy,
+      boardsExportBusy,
+      boardsImportBusy,
       createBoard,
+      renameBoard,
+      deleteBoard,
+      duplicateBoard,
       sidebarCollapsed,
+      showTimestamps,
+      setShowTimestamps,
       toggleSidebar,
       handleExportPng,
       handleCopyPng,
       handleExportSvg,
+      handleExportBoards,
       handleSelectBoard,
     });
 

@@ -162,6 +162,31 @@ const buildImportSelectionMap = (entries: ImportBoardEntry[], existingBoardIds: 
   );
 };
 
+const buildImportBoards = (payload: Partial<BoardsExportFile>): ImportBoardEntry[] => {
+  if (!Array.isArray(payload.boards)) return [];
+  const seen = new Set<string>();
+  return payload.boards.reduce<ImportBoardEntry[]>((acc, entry, index) => {
+    if (!entry || typeof entry.name !== 'string') return acc;
+    const name = entry.name.trim() || 'Untitled board';
+    const baseKey = String(entry.id || `import-${index + 1}`);
+    let key = baseKey;
+    let suffix = 1;
+    while (seen.has(key)) {
+      key = `${baseKey}-${suffix}`;
+      suffix += 1;
+    }
+    seen.add(key);
+    acc.push({
+      ...entry,
+      name,
+      data: entry.data ?? null,
+      key,
+      index,
+    });
+    return acc;
+  }, []);
+};
+
 // =============================================================================
 // Draggable/Droppable Item Components
 // =============================================================================
@@ -802,32 +827,7 @@ export function BoardList({
     }
   };
 
-  const buildImportBoards = (payload: Partial<BoardsExportFile>): ImportBoardEntry[] => {
-    if (!Array.isArray(payload.boards)) return [];
-    const seen = new Set<string>();
-    return payload.boards.reduce<ImportBoardEntry[]>((acc, entry, index) => {
-      if (!entry || typeof entry.name !== 'string') return acc;
-      const name = entry.name.trim() || 'Untitled board';
-      const baseKey = String(entry.id || `import-${index + 1}`);
-      let key = baseKey;
-      let suffix = 1;
-      while (seen.has(key)) {
-        key = `${baseKey}-${suffix}`;
-        suffix += 1;
-      }
-      seen.add(key);
-      acc.push({
-        ...entry,
-        name,
-        data: entry.data ?? null,
-        key,
-        index,
-      });
-      return acc;
-    }, []);
-  };
-
-  const handleOpenImport = async () => {
+  const handleOpenImport = useCallback(async () => {
     setImportError(null);
 
     try {
@@ -869,7 +869,18 @@ export function BoardList({
       console.error('Failed to import boards:', e);
       setImportError('Import failed. Please check the file and try again.');
     }
-  };
+  }, [existingBoardIds]);
+
+  useEffect(() => {
+    const handleImportBoards = () => {
+      void handleOpenImport();
+    };
+
+    window.addEventListener('boardlist:import-boards', handleImportBoards);
+    return () => {
+      window.removeEventListener('boardlist:import-boards', handleImportBoards);
+    };
+  }, [handleOpenImport]);
 
   const handleToggleImportSelection = (key: string) => {
     setImportSelection((prev) => ({ ...prev, [key]: !prev[key] }));

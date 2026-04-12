@@ -1,4 +1,5 @@
 import {
+  assertActiveBoard,
   assertSidebarCollapsed,
   assertExportRowHidden,
   closeSettings,
@@ -6,10 +7,12 @@ import {
   createBoard,
   createBoardFromCommandPalette,
   duplicateBoard,
+  openBoardFromCommandPalette,
   openSettings,
   openSettingsFromCommandPalette,
   renameBoard,
   restartAppSession,
+  selectBoard,
   setSidebarCollapsed,
   setHideExportRow,
   uniqueBoardName,
@@ -80,10 +83,15 @@ describe('System suite', () => {
     await setSidebarCollapsed(false);
   });
 
-  it('command palette: creates board and opens settings', async () => {
+  it('command palette: creates board, opens board selector, and opens settings', async () => {
     const boardName = uniqueBoardName('Palette Board');
+    const secondBoardName = uniqueBoardName('Palette Target');
 
     await createBoardFromCommandPalette(boardName);
+    await createBoard(secondBoardName);
+    await selectBoard(boardName);
+    await assertActiveBoard(boardName);
+    await openBoardFromCommandPalette(secondBoardName);
     await openSettingsFromCommandPalette();
     await closeSettings();
   });
