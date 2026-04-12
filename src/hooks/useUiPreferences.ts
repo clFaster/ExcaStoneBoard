@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
-const LEGACY_HIDE_EXPORT_ROW_STORAGE_KEY = 'boards.hideExportRow';
-const LEGACY_SHOW_TIMESTAMPS_STORAGE_KEY = 'boards.showTimestamps';
-const LEGACY_SIDEBAR_COLLAPSED_STORAGE_KEY = 'boards.sidebarCollapsed';
+type UiPreferenceField = 'hideExportRow' | 'showTimestamps' | 'sidebarCollapsed';
 
 interface UiPreferencesResponse {
   hide_export_row: boolean | null;
@@ -17,10 +16,41 @@ interface UiPreferencesState {
   sidebarCollapsed: boolean;
 }
 
+type LegacyUiPreferences = Record<UiPreferenceField, boolean | null>;
+type UiPreferenceMeta = {
+  settingKey: string;
+  persistWarning: string;
+  migrationWarning: string;
+};
+
 const DEFAULT_UI_PREFERENCES: UiPreferencesState = {
   hideExportRow: false,
   showTimestamps: true,
   sidebarCollapsed: false,
+};
+
+const LEGACY_STORAGE_KEYS: Record<UiPreferenceField, string> = {
+  hideExportRow: 'boards.hideExportRow',
+  showTimestamps: 'boards.showTimestamps',
+  sidebarCollapsed: 'boards.sidebarCollapsed',
+};
+
+const PREFERENCE_META: Record<UiPreferenceField, UiPreferenceMeta> = {
+  hideExportRow: {
+    settingKey: 'hide_export_row',
+    persistWarning: 'Failed to persist hide export row preference:',
+    migrationWarning: 'Failed to migrate hide export row preference:',
+  },
+  showTimestamps: {
+    settingKey: 'show_timestamps',
+    persistWarning: 'Failed to persist show timestamps preference:',
+    migrationWarning: 'Failed to migrate show timestamps preference:',
+  },
+  sidebarCollapsed: {
+    settingKey: 'sidebar_collapsed',
+    persistWarning: 'Failed to persist sidebar collapsed preference:',
+    migrationWarning: 'Failed to migrate sidebar collapsed preference:',
+  },
 };
 
 const parseLegacyBoolean = (storageKey: string): boolean | null => {
@@ -35,90 +65,117 @@ const parseLegacyBoolean = (storageKey: string): boolean | null => {
   }
 };
 
-const persistUiPreference = (key: string, value: boolean, warning: string) => {
-  void invoke('set_ui_preference', { key, value }).catch((error) => {
+const readLegacyPreferences = (): LegacyUiPreferences => ({
+  hideExportRow: parseLegacyBoolean(LEGACY_STORAGE_KEYS.hideExportRow),
+  showTimestamps: parseLegacyBoolean(LEGACY_STORAGE_KEYS.showTimestamps),
+  sidebarCollapsed: parseLegacyBoolean(LEGACY_STORAGE_KEYS.sidebarCollapsed),
+});
+
+const persistUiPreference = (
+  field: UiPreferenceField,
+  value: boolean,
+  useMigrationWarning = false,
+) => {
+  const { settingKey, persistWarning, migrationWarning } = PREFERENCE_META[field];
+  const warning = useMigrationWarning ? migrationWarning : persistWarning;
+
+  void invoke('set_ui_preference', { key: settingKey, value }).catch((error) => {
     console.warn(warning, error);
   });
 };
 
-export function useUiPreferences() {
-  const legacyPreferences = useMemo(
-    () => ({
-      hideExportRow: parseLegacyBoolean(LEGACY_HIDE_EXPORT_ROW_STORAGE_KEY),
-      showTimestamps: parseLegacyBoolean(LEGACY_SHOW_TIMESTAMPS_STORAGE_KEY),
-      sidebarCollapsed: parseLegacyBoolean(LEGACY_SIDEBAR_COLLAPSED_STORAGE_KEY),
-    }),
-    [],
-  );
+const buildInitialPreferences = (legacy: LegacyUiPreferences): UiPreferencesState => ({
+  hideExportRow: legacy.hideExportRow ?? DEFAULT_UI_PREFERENCES.hideExportRow,
+  showTimestamps: legacy.showTimestamps ?? DEFAULT_UI_PREFERENCES.showTimestamps,
+  sidebarCollapsed: legacy.sidebarCollapsed ?? DEFAULT_UI_PREFERENCES.sidebarCollapsed,
+});
 
-  const [preferences, setPreferences] = useState<UiPreferencesState>(() => ({
-    hideExportRow: legacyPreferences.hideExportRow ?? DEFAULT_UI_PREFERENCES.hideExportRow,
-    showTimestamps: legacyPreferences.showTimestamps ?? DEFAULT_UI_PREFERENCES.showTimestamps,
-    sidebarCollapsed: legacyPreferences.sidebarCollapsed ?? DEFAULT_UI_PREFERENCES.sidebarCollapsed,
-  }));
+const resolveStoredPreferences = (
+  stored: UiPreferencesResponse,
+  legacy: LegacyUiPreferences,
+): UiPreferencesState => ({
+  hideExportRow:
+    stored.hide_export_row ?? legacy.hideExportRow ?? DEFAULT_UI_PREFERENCES.hideExportRow,
+  showTimestamps:
+    stored.show_timestamps ?? legacy.showTimestamps ?? DEFAULT_UI_PREFERENCES.showTimestamps,
+  sidebarCollapsed:
+    stored.sidebar_collapsed ?? legacy.sidebarCollapsed ?? DEFAULT_UI_PREFERENCES.sidebarCollapsed,
+});
+
+const getStoredValue = (
+  stored: UiPreferencesResponse,
+  field: UiPreferenceField,
+): boolean | null => {
+  switch (field) {
+    case 'hideExportRow':
+      return stored.hide_export_row;
+    case 'showTimestamps':
+      return stored.show_timestamps;
+    case 'sidebarCollapsed':
+      return stored.sidebar_collapsed;
+  }
+};
+
+const migrateLegacyPreferences = (stored: UiPreferencesResponse, legacy: LegacyUiPreferences) => {
+  const fields: UiPreferenceField[] = ['hideExportRow', 'showTimestamps', 'sidebarCollapsed'];
+  for (const field of fields) {
+    const storedValue = getStoredValue(stored, field);
+    const legacyValue = legacy[field];
+    if (storedValue === null && legacyValue !== null) {
+      persistUiPreference(field, legacyValue, true);
+    }
+  }
+};
+
+const applyPreferenceUpdate = (
+  setPreferences: Dispatch<SetStateAction<UiPreferencesState>>,
+  field: UiPreferenceField,
+  value: boolean,
+) => {
+  setPreferences((current) =>
+    current[field] === value ? current : { ...current, [field]: value },
+  );
+};
+
+const updatePreference = (
+  setPreferences: Dispatch<SetStateAction<UiPreferencesState>>,
+  field: UiPreferenceField,
+  value: boolean,
+  preferencesLoaded: boolean,
+) => {
+  applyPreferenceUpdate(setPreferences, field, value);
+  if (preferencesLoaded) {
+    persistUiPreference(field, value);
+  }
+};
+
+export function useUiPreferences() {
+  const legacyPreferences = useMemo(() => readLegacyPreferences(), []);
+  const [preferences, setPreferences] = useState<UiPreferencesState>(() =>
+    buildInitialPreferences(legacyPreferences),
+  );
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
+    const handleLoadedPreferences = (storedPreferences: UiPreferencesResponse) => {
+      if (cancelled) return;
+
+      setPreferences(resolveStoredPreferences(storedPreferences, legacyPreferences));
+      setPreferencesLoaded(true);
+      migrateLegacyPreferences(storedPreferences, legacyPreferences);
+    };
+
+    const handleLoadError = (error: unknown) => {
+      if (cancelled) return;
+      console.warn('Failed to load UI preferences from backend:', error);
+      setPreferencesLoaded(true);
+    };
+
     void invoke<UiPreferencesResponse>('get_ui_preferences')
-      .then((storedPreferences) => {
-        if (cancelled) return;
-
-        const nextPreferences: UiPreferencesState = {
-          hideExportRow:
-            storedPreferences.hide_export_row ??
-            legacyPreferences.hideExportRow ??
-            DEFAULT_UI_PREFERENCES.hideExportRow,
-          showTimestamps:
-            storedPreferences.show_timestamps ??
-            legacyPreferences.showTimestamps ??
-            DEFAULT_UI_PREFERENCES.showTimestamps,
-          sidebarCollapsed:
-            storedPreferences.sidebar_collapsed ??
-            legacyPreferences.sidebarCollapsed ??
-            DEFAULT_UI_PREFERENCES.sidebarCollapsed,
-        };
-
-        setPreferences(nextPreferences);
-        setPreferencesLoaded(true);
-
-        if (
-          storedPreferences.hide_export_row === null &&
-          legacyPreferences.hideExportRow !== null
-        ) {
-          persistUiPreference(
-            'hide_export_row',
-            legacyPreferences.hideExportRow,
-            'Failed to migrate hide export row preference:',
-          );
-        }
-        if (
-          storedPreferences.show_timestamps === null &&
-          legacyPreferences.showTimestamps !== null
-        ) {
-          persistUiPreference(
-            'show_timestamps',
-            legacyPreferences.showTimestamps,
-            'Failed to migrate show timestamps preference:',
-          );
-        }
-        if (
-          storedPreferences.sidebar_collapsed === null &&
-          legacyPreferences.sidebarCollapsed !== null
-        ) {
-          persistUiPreference(
-            'sidebar_collapsed',
-            legacyPreferences.sidebarCollapsed,
-            'Failed to migrate sidebar collapsed preference:',
-          );
-        }
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        console.warn('Failed to load UI preferences from backend:', error);
-        setPreferencesLoaded(true);
-      });
+      .then(handleLoadedPreferences)
+      .catch(handleLoadError);
 
     return () => {
       cancelled = true;
@@ -126,34 +183,13 @@ export function useUiPreferences() {
   }, [legacyPreferences]);
 
   const setHideExportRow = useCallback(
-    (value: boolean) => {
-      setPreferences((current) =>
-        current.hideExportRow === value ? current : { ...current, hideExportRow: value },
-      );
-      if (preferencesLoaded) {
-        persistUiPreference(
-          'hide_export_row',
-          value,
-          'Failed to persist hide export row preference:',
-        );
-      }
-    },
+    (value: boolean) => updatePreference(setPreferences, 'hideExportRow', value, preferencesLoaded),
     [preferencesLoaded],
   );
 
   const setShowTimestamps = useCallback(
-    (value: boolean) => {
-      setPreferences((current) =>
-        current.showTimestamps === value ? current : { ...current, showTimestamps: value },
-      );
-      if (preferencesLoaded) {
-        persistUiPreference(
-          'show_timestamps',
-          value,
-          'Failed to persist show timestamps preference:',
-        );
-      }
-    },
+    (value: boolean) =>
+      updatePreference(setPreferences, 'showTimestamps', value, preferencesLoaded),
     [preferencesLoaded],
   );
 
@@ -161,11 +197,7 @@ export function useUiPreferences() {
     setPreferences((current) => {
       const nextValue = !current.sidebarCollapsed;
       if (preferencesLoaded) {
-        persistUiPreference(
-          'sidebar_collapsed',
-          nextValue,
-          'Failed to persist sidebar collapsed preference:',
-        );
+        persistUiPreference('sidebarCollapsed', nextValue);
       }
       return { ...current, sidebarCollapsed: nextValue };
     });

@@ -157,6 +157,86 @@ const createCommandPaletteCommands = ({
   return [...commands, ...openBoardCommands];
 };
 
+interface UseCommandPaletteControllerConfig {
+  items: AppController['items'];
+  activeBoardId: AppController['activeBoardId'];
+  boardDataLoading: AppController['boardDataLoading'];
+  exportBusy: AppController['exportBusy'];
+  createBoard: AppController['createBoard'];
+  sidebarCollapsed: AppController['sidebarCollapsed'];
+  toggleSidebar: AppController['toggleSidebar'];
+  handleExportPng: AppController['handleExportPng'];
+  handleCopyPng: AppController['handleCopyPng'];
+  handleExportSvg: AppController['handleExportSvg'];
+  handleSelectBoard: AppController['handleSelectBoard'];
+}
+
+const useCommandPaletteController = ({
+  items,
+  activeBoardId,
+  boardDataLoading,
+  exportBusy,
+  createBoard,
+  sidebarCollapsed,
+  toggleSidebar,
+  handleExportPng,
+  handleCopyPng,
+  handleExportSvg,
+  handleSelectBoard,
+}: UseCommandPaletteControllerConfig) => {
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+
+  const allBoards = useMemo(() => flattenBoardsForPalette(items), [items]);
+
+  const closeCommandPalette = useCallback(() => {
+    setCommandPaletteOpen(false);
+  }, []);
+
+  const toggleCommandPalette = useCallback(() => {
+    setCommandPaletteOpen((previous) => !previous);
+  }, []);
+
+  useCommandPaletteShortcut(toggleCommandPalette);
+
+  const requestOpenSettings = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('boardlist:open-settings'));
+  }, []);
+
+  const commandPaletteCommands = useMemo(
+    () =>
+      createCommandPaletteCommands({
+        activeBoardId,
+        boardDataLoading,
+        exportBusy,
+        createBoard,
+        requestOpenSettings,
+        sidebarCollapsed,
+        toggleSidebar,
+        handleExportPng,
+        handleCopyPng,
+        handleExportSvg,
+        handleSelectBoard,
+        allBoards,
+      }),
+    [
+      activeBoardId,
+      allBoards,
+      boardDataLoading,
+      createBoard,
+      exportBusy,
+      handleCopyPng,
+      handleExportPng,
+      handleExportSvg,
+      handleSelectBoard,
+      requestOpenSettings,
+      sidebarCollapsed,
+      toggleSidebar,
+    ],
+  );
+
+  return { commandPaletteOpen, closeCommandPalette, commandPaletteCommands };
+};
+
 function FullScreenLoading({ message }: { message: string }) {
   return (
     <div className="app loading-screen">
@@ -379,55 +459,20 @@ function App() {
     toggleSidebar,
   } = useAppController();
 
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-
-  const allBoards = useMemo(() => flattenBoardsForPalette(items), [items]);
-
-  const closeCommandPalette = useCallback(() => {
-    setCommandPaletteOpen(false);
-  }, []);
-
-  const toggleCommandPalette = useCallback(() => {
-    setCommandPaletteOpen((previous) => !previous);
-  }, []);
-
-  useCommandPaletteShortcut(toggleCommandPalette);
-
-  const requestOpenSettings = useCallback(() => {
-    window.dispatchEvent(new CustomEvent('boardlist:open-settings'));
-  }, []);
-
-  const commandPaletteCommands = useMemo(
-    () =>
-      createCommandPaletteCommands({
-        activeBoardId,
-        boardDataLoading,
-        exportBusy,
-        createBoard,
-        requestOpenSettings,
-        sidebarCollapsed,
-        toggleSidebar,
-        handleExportPng,
-        handleCopyPng,
-        handleExportSvg,
-        handleSelectBoard,
-        allBoards,
-      }),
-    [
+  const { commandPaletteOpen, closeCommandPalette, commandPaletteCommands } =
+    useCommandPaletteController({
+      items,
       activeBoardId,
-      allBoards,
       boardDataLoading,
-      createBoard,
       exportBusy,
-      handleCopyPng,
-      handleExportPng,
-      handleExportSvg,
-      handleSelectBoard,
-      requestOpenSettings,
+      createBoard,
       sidebarCollapsed,
       toggleSidebar,
-    ],
-  );
+      handleExportPng,
+      handleCopyPng,
+      handleExportSvg,
+      handleSelectBoard,
+    });
 
   const exportDisabled = useMemo(
     () => shouldDisableExportActions(activeBoardId, boardDataLoading, exportBusy),
