@@ -44,6 +44,7 @@ interface KeyboardContext {
   filteredCommands: CommandPaletteItem[];
   clearCommandGroup: () => void;
   clearInputMode: () => void;
+  setKeyboardNavigationActive: Dispatch<SetStateAction<boolean>>;
   runCommand: (command: CommandPaletteItem | undefined, providedInput?: string) => void;
   setSelectedIndex: Dispatch<SetStateAction<number>>;
   onClose: () => void;
@@ -54,12 +55,14 @@ interface CommandPaletteResultsProps {
   inputCommand: CommandPaletteItem | null;
   filteredCommands: CommandPaletteItem[];
   activeIndex: number;
+  keyboardNavigationActive: boolean;
   onSelectIndex: (index: number) => void;
   onRunCommand: (command: CommandPaletteItem) => void;
 }
 
 interface CommandPaletteDialogProps {
   inputRef: RefObject<HTMLInputElement | null>;
+  listRef: RefObject<HTMLDivElement | null>;
   activeCommand: CommandPaletteItem | null;
   inputCommand: CommandPaletteItem | null;
   inputValue: string;
@@ -67,6 +70,8 @@ interface CommandPaletteDialogProps {
   setActiveInputValue: Dispatch<SetStateAction<string>>;
   filteredCommands: CommandPaletteItem[];
   activeIndex: number;
+  keyboardNavigationActive: boolean;
+  setKeyboardNavigationActive: Dispatch<SetStateAction<boolean>>;
   setSelectedIndex: Dispatch<SetStateAction<number>>;
   runCommand: (command: CommandPaletteItem | undefined, providedInput?: string) => void;
 }
@@ -201,6 +206,7 @@ const tryHandleArrowNavigation = (event: KeyboardEvent, context: KeyboardContext
   }
 
   event.preventDefault();
+  context.setKeyboardNavigationActive(true);
   const direction = isArrowDownKey(event) ? 'down' : 'up';
   context.setSelectedIndex((current) =>
     getWrappedSelectionIndex(current, context.filteredCommands.length, direction),
@@ -232,6 +238,7 @@ const useCommandPaletteKeyboard = ({
   filteredCommands,
   clearCommandGroup,
   clearInputMode,
+  setKeyboardNavigationActive,
   runCommand,
   setSelectedIndex,
   onClose,
@@ -245,6 +252,7 @@ const useCommandPaletteKeyboard = ({
       filteredCommands,
       clearCommandGroup,
       clearInputMode,
+      setKeyboardNavigationActive,
       runCommand,
       setSelectedIndex,
       onClose,
@@ -268,6 +276,7 @@ const useCommandPaletteKeyboard = ({
     inputValue,
     onClose,
     runCommand,
+    setKeyboardNavigationActive,
     setSelectedIndex,
   ]);
 };
@@ -280,6 +289,7 @@ function CommandPaletteResults({
   inputCommand,
   filteredCommands,
   activeIndex,
+  keyboardNavigationActive,
   onSelectIndex,
   onRunCommand,
 }: CommandPaletteResultsProps) {
@@ -303,7 +313,11 @@ function CommandPaletteResults({
           type="button"
           className={`command-palette-item ${index === activeIndex ? 'active' : ''}`}
           data-testid={`command-palette-item-${command.id}`}
-          onMouseEnter={() => onSelectIndex(index)}
+          onMouseEnter={() => {
+            if (!keyboardNavigationActive) {
+              onSelectIndex(index);
+            }
+          }}
           onClick={() => onRunCommand(command)}
           role="option"
           aria-selected={index === activeIndex}
@@ -323,6 +337,7 @@ function CommandPaletteResults({
 
 function CommandPaletteDialog({
   inputRef,
+  listRef,
   activeCommand,
   inputCommand,
   inputValue,
@@ -330,6 +345,8 @@ function CommandPaletteDialog({
   setActiveInputValue,
   filteredCommands,
   activeIndex,
+  keyboardNavigationActive,
+  setKeyboardNavigationActive,
   setSelectedIndex,
   runCommand,
 }: CommandPaletteDialogProps) {
@@ -364,12 +381,19 @@ function CommandPaletteDialog({
         />
       </div>
 
-      <div className="command-palette-list" role="listbox" aria-label="Command results">
+      <div
+        ref={listRef}
+        className="command-palette-list"
+        role="listbox"
+        aria-label="Command results"
+        onMouseMove={() => setKeyboardNavigationActive(false)}
+      >
         <CommandPaletteResults
           activeCommand={activeCommand}
           inputCommand={inputCommand}
           filteredCommands={filteredCommands}
           activeIndex={activeIndex}
+          keyboardNavigationActive={keyboardNavigationActive}
           onSelectIndex={setSelectedIndex}
           onRunCommand={runCommand}
         />
@@ -386,7 +410,9 @@ export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [inputCommandId, setInputCommandId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
+  const [keyboardNavigationActive, setKeyboardNavigationActive] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
 
   const activeCommand = useMemo(
     () =>
@@ -454,6 +480,7 @@ export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
     filteredCommands,
     clearCommandGroup,
     clearInputMode,
+    setKeyboardNavigationActive,
     runCommand,
     setSelectedIndex,
     onClose,
@@ -477,6 +504,20 @@ export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
     };
   }, [inputCommand]);
 
+  useEffect(() => {
+    if (inputCommand || activeIndex < 0) {
+      return;
+    }
+
+    const listElement = listRef.current;
+    if (!listElement) {
+      return;
+    }
+
+    const activeElement = listElement.querySelector<HTMLElement>('.command-palette-item.active');
+    activeElement?.scrollIntoView({ block: 'nearest' });
+  }, [activeIndex, inputCommand, filteredCommands]);
+
   const handleOverlayMouseDown = useCallback(
     (event: MouseEvent<HTMLDivElement>) => {
       if (event.target === event.currentTarget) {
@@ -490,6 +531,7 @@ export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
     <div className="command-palette-overlay" onMouseDown={handleOverlayMouseDown}>
       <CommandPaletteDialog
         inputRef={inputRef}
+        listRef={listRef}
         activeCommand={activeCommand}
         inputCommand={inputCommand}
         inputValue={inputValue}
@@ -497,6 +539,8 @@ export function CommandPalette({ onClose, commands }: CommandPaletteProps) {
         setActiveInputValue={setActiveInputValue}
         filteredCommands={filteredCommands}
         activeIndex={activeIndex}
+        keyboardNavigationActive={keyboardNavigationActive}
+        setKeyboardNavigationActive={setKeyboardNavigationActive}
         setSelectedIndex={setSelectedIndex}
         runCommand={runCommand}
       />
