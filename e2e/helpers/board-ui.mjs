@@ -105,6 +105,30 @@ export async function renameBoard(currentName, nextName) {
   await waitForBoardVisible(nextName);
 }
 
+export async function rememberEditorInstance() {
+  const editorFound = await browser.execute(() => {
+    const editor = document.querySelector('.excalidraw-frame .excalidraw');
+    window.__systemTestEditorInstance = editor;
+    return editor !== null;
+  });
+
+  if (!editorFound) {
+    throw new Error('Expected the Excalidraw editor to be mounted.');
+  }
+}
+
+export async function assertEditorInstancePreserved() {
+  const editorPreserved = await browser.execute(
+    () =>
+      window.__systemTestEditorInstance !== null &&
+      window.__systemTestEditorInstance === document.querySelector('.excalidraw-frame .excalidraw'),
+  );
+
+  if (!editorPreserved) {
+    throw new Error('Expected rename to preserve the mounted Excalidraw editor instance.');
+  }
+}
+
 export async function duplicateBoard(name) {
   await openBoardMenu(name);
 

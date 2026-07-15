@@ -46,10 +46,30 @@ export function useBoards() {
   };
 
   const renameBoard = async (boardId: string, newName: string): Promise<boolean> => {
-    return runAndReload(async () => {
-      await invoke<Board>('rename_board', { boardId, newName });
+    try {
+      const renamedBoard = await invoke<Board>('rename_board', { boardId, newName });
+      setItems((currentItems) =>
+        currentItems.map((item) => {
+          if (item.type === 'board') {
+            return item.id === boardId ? { ...renamedBoard, type: 'board' } : item;
+          }
+
+          if (!item.items.some((board) => board.id === boardId)) {
+            return item;
+          }
+
+          return {
+            ...item,
+            items: item.items.map((board) => (board.id === boardId ? renamedBoard : board)),
+          };
+        }),
+      );
+      setError(null);
       return true;
-    }, false);
+    } catch (e) {
+      setError(String(e));
+      return false;
+    }
   };
 
   const deleteBoard = async (boardId: string): Promise<boolean> => {
