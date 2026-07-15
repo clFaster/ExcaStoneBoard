@@ -1,5 +1,6 @@
 import {
   assertActiveBoard,
+  assertEditorInstancePreserved,
   assertSidebarCollapsed,
   assertExportRowHidden,
   closeSettings,
@@ -10,6 +11,7 @@ import {
   openBoardFromCommandPalette,
   openSettings,
   openSettingsFromCommandPalette,
+  rememberEditorInstance,
   renameBoard,
   restartAppSession,
   selectBoard,
@@ -44,6 +46,16 @@ describe('System suite', () => {
 
     await waitForBoardVisible(renamedName);
     await waitForBoardVisible(duplicatedName);
+  });
+
+  it('rename: preserves the mounted editor so pending content can still be saved', async () => {
+    const boardName = uniqueBoardName('Rename Content Board');
+    const renamedName = `${boardName} Renamed`;
+
+    await createBoard(boardName);
+    await rememberEditorInstance();
+    await renameBoard(boardName, renamedName);
+    await assertEditorInstancePreserved();
   });
 
   it('persistence: keeps created boards after app restart', async () => {
