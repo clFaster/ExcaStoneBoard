@@ -24,9 +24,15 @@ pub(crate) fn export_boards(app: AppHandle, file_path: String) -> Result<(), Str
 
     let mut boards = Vec::new();
     let mut seen = HashSet::new();
+    let mut ctx = ExportContext {
+        app: &app,
+        conn: &conn,
+        seen: &mut seen,
+        export_entries: &mut boards,
+    };
 
     for item in &index.items {
-        export_item_boards(&app, &conn, item, &mut seen, &mut boards)?;
+        export_item_boards(&mut ctx, item)?;
     }
 
     let export_file = BoardsExportFile {
@@ -77,36 +83,33 @@ pub(crate) fn import_boards(
     Ok(BoardsImportResult { imported, skipped })
 }
 
-fn export_item_boards(
-    app: &AppHandle,
-    conn: &rusqlite::Connection,
-    item: &BoardListItem,
-    seen: &mut HashSet<String>,
-    export_entries: &mut Vec<BoardsExportEntry>,
-) -> Result<(), String> {
+/// Shared state threaded through the recursive export helpers.
+struct ExportContext<'a> {
+    app: &'a AppHandle,
+    conn: &'a rusqlite::Connection,
+    seen: &'a mut HashSet<String>,
+    export_entries: &'a mut Vec<BoardsExportEntry>,
+}
+
+fn export_item_boards(ctx: &mut ExportContext<'_>, item: &BoardListItem) -> Result<(), String> {
     match item {
-        BoardListItem::Board(board) => export_board_if_new(app, conn, board, seen, export_entries),
+        BoardListItem::Board(board) => export_board_if_new(ctx, board),
         BoardListItem::Folder(folder) => {
             for board in &folder.items {
-                export_board_if_new(app, conn, board, seen, export_entries)?;
+                export_board_if_new(ctx, board)?;
             }
             Ok(())
         }
     }
 }
 
-fn export_board_if_new(
-    app: &AppHandle,
-    conn: &rusqlite::Connection,
-    board: &Board,
-    seen: &mut HashSet<String>,
-    export_entries: &mut Vec<BoardsExportEntry>,
-) -> Result<(), String> {
-    if !seen.insert(board.id.clone()) {
+fn export_board_if_new(ctx: &mut ExportContext<'_>, board: &Board) -> Result<(), String> {
+    if !ctx.seen.insert(board.id.clone()) {
         return Ok(());
     }
 
-    export_entries.push(build_export_entry(app, conn, board)?);
+    let entry = build_export_entry(ctx.app, ctx.conn, board)?;
+    ctx.export_entries.push(entry);
     Ok(())
 }
 
