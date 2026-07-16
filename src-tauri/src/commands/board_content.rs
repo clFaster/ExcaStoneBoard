@@ -3,6 +3,7 @@ use rusqlite::params;
 use tauri::AppHandle;
 
 use crate::db::{board_id_exists, default_board_data, load_board_data_value, open_db};
+use crate::thumbnails;
 
 #[tauri::command]
 pub(crate) fn save_board_data(
@@ -70,11 +71,13 @@ pub(crate) fn save_board_thumbnail(
     board_id: String,
     thumbnail: Option<String>,
 ) -> Result<(), String> {
+    let relative_path = thumbnails::save_thumbnail(&app, &board_id, thumbnail.as_deref())?;
+
     let conn = open_db(&app)?;
     let updated = conn
         .execute(
             "UPDATE boards SET thumbnail = ?1 WHERE id = ?2",
-            params![thumbnail, board_id],
+            params![relative_path, board_id],
         )
         .map_err(|error| error.to_string())?;
     if updated == 0 {

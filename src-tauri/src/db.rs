@@ -72,11 +72,11 @@ pub(crate) fn open_db(app: &AppHandle) -> Result<Connection, String> {
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
     conn.execute_batch("PRAGMA foreign_keys = ON;")
         .map_err(|e| e.to_string())?;
-    init_db(&conn)?;
+    init_db(&conn, app)?;
     Ok(conn)
 }
 
-fn init_db(conn: &Connection) -> Result<(), String> {
+fn init_db(conn: &Connection, app: &AppHandle) -> Result<(), String> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS boards (
             id TEXT PRIMARY KEY,
@@ -124,6 +124,41 @@ fn init_db(conn: &Connection) -> Result<(), String> {
         conn.execute("PRAGMA user_version = 1", [])
             .map_err(|e| e.to_string())?;
     }
+    if version < 2 {
+        migrate_thumbnails_to_files(conn, app)?;
+        conn.execute("PRAGMA user_version = 2", [])
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Migration from schema version 1 to 2: thumbnails used to be stored as inline
+/// `data:` URLs in the `boards.thumbnail` TEXT column. This moves any such values to
+/// files under the app data directory and replaces the DB value with the relative path.
+fn migrate_thumbnails_to_files(conn: &Connection, app: &AppHandle) -> Result<(), String> {
+    let mut stmt = conn
+        .prepare("SELECT id, thumbnail FROM boards WHERE thumbnail LIKE 'data:%'")
+        .map_err(|e| e.to_string())?;
+    let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
+
+    let mut updates: Vec<(String, Option<String>)> = Vec::new();
+    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        let id: String = row.get(0).map_err(|e| e.to_string())?;
+        let thumbnail: String = row.get(1).map_err(|e| e.to_string())?;
+        let relative_path = crate::thumbnails::save_thumbnail(app, &id, Some(&thumbnail))?;
+        updates.push((id, relative_path));
+    }
+    drop(rows);
+    drop(stmt);
+
+    for (id, relative_path) in updates {
+        conn.execute(
+            "UPDATE boards SET thumbnail = ?1 WHERE id = ?2",
+            params![relative_path, id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
     Ok(())
 }
 

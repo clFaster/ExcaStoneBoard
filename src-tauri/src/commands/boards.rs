@@ -8,7 +8,8 @@ use crate::db::{
     get_board_by_id, get_setting, load_board_data_value, load_boards_index_from_db,
     normalize_active_board_id, open_db, set_setting,
 };
-use crate::models::{Board, BoardListItem, BoardsIndex};
+use crate::models::{Board, BoardFolder, BoardListItem, BoardsIndex};
+use crate::thumbnails;
 
 const ACTIVE_BOARD_SETTING_KEY: &str = "active_board_id";
 
@@ -18,7 +19,8 @@ struct BoardDataPayload(String);
 pub(crate) fn get_boards(app: AppHandle) -> Result<BoardsIndex, String> {
     let conn = open_db(&app)?;
     let index = load_boards_index_from_db(&conn)?;
-    normalize_active_board_id(&conn, index)
+    let index = normalize_active_board_id(&conn, index)?;
+    resolve_index_thumbnails(&app, index)
 }
 
 #[tauri::command]
@@ -65,7 +67,8 @@ pub(crate) fn rename_board(
     if updated == 0 {
         return Err("Board not found".to_string());
     }
-    get_board_by_id(&conn, &board_id)
+    let board = get_board_by_id(&conn, &board_id)?;
+    resolve_board_thumbnail(&app, board)
 }
 
 #[tauri::command]
@@ -84,6 +87,7 @@ pub(crate) fn delete_board(app: AppHandle, board_id: String) -> Result<(), Strin
     if deleted == 0 {
         return Err("Board not found".to_string());
     }
+    thumbnails::delete_thumbnail(&app, &board_id)?;
 
     tx.execute(
         "DELETE FROM index_items WHERE item_type = 'board' AND item_id = ?1",
@@ -133,26 +137,28 @@ pub(crate) fn duplicate_board(
     new_name: String,
 ) -> Result<Board, String> {
     let mut conn = open_db(&app)?;
-    let original = get_board_by_id(&conn, &board_id)?;
+    let _original = get_board_by_id(&conn, &board_id)?;
     let original_data = BoardDataPayload(
         load_board_data_value(&conn, &board_id)?.unwrap_or_else(default_board_data),
     );
 
     let now = Utc::now();
+    let new_id = Uuid::new_v4().to_string();
+    let copied_thumbnail = thumbnails::copy_thumbnail(&app, &board_id, &new_id)?;
     let new_board = Board {
-        id: Uuid::new_v4().to_string(),
+        id: new_id,
         name: new_name,
         created_at: now,
         updated_at: now,
         collaboration_link: None,
-        thumbnail: original.thumbnail.clone(),
+        thumbnail: copied_thumbnail,
     };
 
     let tx = conn.transaction().map_err(|error| error.to_string())?;
     insert_board_with_data(&tx, &new_board, &original_data)?;
 
     tx.commit().map_err(|error| error.to_string())?;
-    Ok(new_board)
+    resolve_board_thumbnail(&app, new_board)
 }
 
 #[tauri::command]
@@ -292,4 +298,43 @@ fn next_index_position(tx: &rusqlite::Transaction<'_>) -> Result<i64, String> {
         |row| row.get(0),
     )
     .map_err(|error| error.to_string())
+}
+
+/// Converts a board's `thumbnail` field from a relative file path (as stored in the DB)
+/// into a data URL suitable for the frontend.
+fn resolve_board_thumbnail(app: &AppHandle, mut board: Board) -> Result<Board, String> {
+    board.thumbnail = thumbnails::load_thumbnail_data_url(app, board.thumbnail.as_deref())?;
+    Ok(board)
+}
+
+fn resolve_index_thumbnails(
+    app: &AppHandle,
+    mut index: BoardsIndex,
+) -> Result<BoardsIndex, String> {
+    let mut resolved_items = Vec::with_capacity(index.items.len());
+    for item in index.items.drain(..) {
+        resolved_items.push(resolve_item_thumbnails(app, item)?);
+    }
+    index.items = resolved_items;
+    Ok(index)
+}
+
+fn resolve_item_thumbnails(app: &AppHandle, item: BoardListItem) -> Result<BoardListItem, String> {
+    match item {
+        BoardListItem::Board(board) => {
+            Ok(BoardListItem::Board(resolve_board_thumbnail(app, board)?))
+        }
+        BoardListItem::Folder(folder) => {
+            let BoardFolder { id, name, items } = folder;
+            let mut resolved_boards = Vec::with_capacity(items.len());
+            for board in items {
+                resolved_boards.push(resolve_board_thumbnail(app, board)?);
+            }
+            Ok(BoardListItem::Folder(BoardFolder {
+                id,
+                name,
+                items: resolved_boards,
+            }))
+        }
+    }
 }
