@@ -71,7 +71,11 @@ pub(crate) fn save_board_thumbnail(
     board_id: String,
     thumbnail: Option<String>,
 ) -> Result<(), String> {
-    let relative_path = thumbnails::save_thumbnail(&app, &board_id, thumbnail.as_deref())?;
+    let relative_path = thumbnails::save_thumbnail(
+        &app,
+        thumbnails::BoardId::from(board_id.as_str()),
+        thumbnail.as_deref(),
+    )?;
 
     let conn = open_db(&app)?;
     let updated = conn

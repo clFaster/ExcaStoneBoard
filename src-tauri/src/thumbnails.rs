@@ -1,14 +1,94 @@
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 
 use crate::db::get_boards_dir;
 
 const THUMBNAILS_SUBDIR: &str = "thumbnails";
 const DEFAULT_MIME: &str = "image/png";
-const DEFAULT_EXTENSION: &str = "png";
+
+#[derive(Clone, Copy)]
+pub(crate) struct BoardId<'a>(&'a str);
+
+impl<'a> BoardId<'a> {
+    fn as_str(self) -> &'a str {
+        self.0
+    }
+}
+
+impl<'a> From<&'a str> for BoardId<'a> {
+    fn from(value: &'a str) -> Self {
+        Self(value)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct RelativeThumbnailPath<'a>(&'a str);
+
+impl<'a> RelativeThumbnailPath<'a> {
+    fn as_str(self) -> &'a str {
+        self.0
+    }
+}
+
+impl<'a> From<&'a str> for RelativeThumbnailPath<'a> {
+    fn from(value: &'a str) -> Self {
+        Self(value)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ThumbnailFormat {
+    Png,
+    Jpg,
+    Jpeg,
+    Webp,
+}
+
+impl ThumbnailFormat {
+    fn extension(self) -> &'static str {
+        match self {
+            Self::Png => "png",
+            Self::Jpg => "jpg",
+            Self::Jpeg => "jpeg",
+            Self::Webp => "webp",
+        }
+    }
+
+    fn mime(self) -> &'static str {
+        match self {
+            Self::Png => DEFAULT_MIME,
+            Self::Jpg | Self::Jpeg => "image/jpeg",
+            Self::Webp => "image/webp",
+        }
+    }
+
+    fn from_mime_label(mime: &str) -> Self {
+        match mime {
+            "image/jpeg" | "image/jpg" => Self::Jpg,
+            "image/webp" => Self::Webp,
+            _ => Self::Png,
+        }
+    }
+
+    fn from_path(path: &Path) -> Self {
+        match path.extension().and_then(|ext| ext.to_str()) {
+            Some("jpg") => Self::Jpg,
+            Some("jpeg") => Self::Jpeg,
+            Some("webp") => Self::Webp,
+            _ => Self::Png,
+        }
+    }
+}
+
+const KNOWN_FORMATS: [ThumbnailFormat; 4] = [
+    ThumbnailFormat::Png,
+    ThumbnailFormat::Jpg,
+    ThumbnailFormat::Jpeg,
+    ThumbnailFormat::Webp,
+];
 
 /// Directory that holds all cached thumbnail files, created on demand.
 pub(crate) fn thumbnails_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -17,26 +97,30 @@ pub(crate) fn thumbnails_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-fn file_path_for(app: &AppHandle, board_id: &str, extension: &str) -> Result<PathBuf, String> {
-    Ok(thumbnails_dir(app)?.join(format!("{board_id}.{extension}")))
+fn file_path_for(
+    app: &AppHandle,
+    board_id: BoardId<'_>,
+    format: ThumbnailFormat,
+) -> Result<PathBuf, String> {
+    Ok(thumbnails_dir(app)?.join(format!(
+        "{}.{}",
+        board_id.as_str(),
+        format.extension()
+    )))
 }
 
 /// Relative path (as stored in the DB) for a given board id/extension pair.
-fn relative_path_for(board_id: &str, extension: &str) -> String {
-    format!("{THUMBNAILS_SUBDIR}/{board_id}.{extension}")
+fn relative_path_for(board_id: BoardId<'_>, format: ThumbnailFormat) -> String {
+    format!(
+        "{THUMBNAILS_SUBDIR}/{}.{}",
+        board_id.as_str(),
+        format.extension()
+    )
 }
 
 struct DecodedDataUrl {
-    extension: String,
+    format: ThumbnailFormat,
     bytes: Vec<u8>,
-}
-
-fn extension_from_mime(mime: &str) -> String {
-    match mime {
-        "image/jpeg" | "image/jpg" => "jpg".to_string(),
-        "image/webp" => "webp".to_string(),
-        _ => DEFAULT_EXTENSION.to_string(),
-    }
 }
 
 fn decode_data_url(data_url: &str) -> Result<DecodedDataUrl, String> {
@@ -54,23 +138,15 @@ fn decode_data_url(data_url: &str) -> Result<DecodedDataUrl, String> {
         .map_err(|error| format!("Failed to decode thumbnail data: {error}"))?;
 
     Ok(DecodedDataUrl {
-        extension: extension_from_mime(mime),
+        format: ThumbnailFormat::from_mime_label(mime),
         bytes,
     })
 }
 
-fn mime_from_extension(extension: &str) -> &'static str {
-    match extension {
-        "jpg" | "jpeg" => "image/jpeg",
-        "webp" => "image/webp",
-        _ => DEFAULT_MIME,
-    }
-}
-
 /// Removes any previously cached thumbnail file(s) for a board, regardless of extension.
-fn remove_existing_files(app: &AppHandle, board_id: &str) -> Result<(), String> {
-    for extension in ["png", "jpg", "jpeg", "webp"] {
-        let path = file_path_for(app, board_id, extension)?;
+fn remove_existing_files(app: &AppHandle, board_id: BoardId<'_>) -> Result<(), String> {
+    for format in KNOWN_FORMATS {
+        let path = file_path_for(app, board_id, format)?;
         if path.exists() {
             fs::remove_file(&path).map_err(|error| error.to_string())?;
         }
@@ -83,7 +159,7 @@ fn remove_existing_files(app: &AppHandle, board_id: &str) -> Result<(), String> 
 /// is `None`, in which case any existing file is removed).
 pub(crate) fn save_thumbnail(
     app: &AppHandle,
-    board_id: &str,
+    board_id: BoardId<'_>,
     data_url: Option<&str>,
 ) -> Result<Option<String>, String> {
     remove_existing_files(app, board_id)?;
@@ -93,40 +169,36 @@ pub(crate) fn save_thumbnail(
     };
 
     let decoded = decode_data_url(data_url)?;
-    let path = file_path_for(app, board_id, &decoded.extension)?;
+    let path = file_path_for(app, board_id, decoded.format)?;
     fs::write(&path, &decoded.bytes).map_err(|error| error.to_string())?;
 
-    Ok(Some(relative_path_for(board_id, &decoded.extension)))
+    Ok(Some(relative_path_for(board_id, decoded.format)))
 }
 
 /// Reads the thumbnail file referenced by `relative_path` (if any) and re-encodes it as a
 /// data URL for the frontend.
 pub(crate) fn load_thumbnail_data_url(
     app: &AppHandle,
-    relative_path: Option<&str>,
+    relative_path: Option<RelativeThumbnailPath<'_>>,
 ) -> Result<Option<String>, String> {
     let Some(relative_path) = relative_path else {
         return Ok(None);
     };
 
-    let path = get_boards_dir(app)?.join(relative_path);
+    let path = get_boards_dir(app)?.join(relative_path.as_str());
     if !path.exists() {
         return Ok(None);
     }
 
     let bytes = fs::read(&path).map_err(|error| error.to_string())?;
-    let extension = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or(DEFAULT_EXTENSION);
-    let mime = mime_from_extension(extension);
+    let mime = ThumbnailFormat::from_path(&path).mime();
     let encoded = STANDARD.encode(bytes);
 
     Ok(Some(format!("data:{mime};base64,{encoded}")))
 }
 
 /// Deletes the cached thumbnail file(s) for a board, if any.
-pub(crate) fn delete_thumbnail(app: &AppHandle, board_id: &str) -> Result<(), String> {
+pub(crate) fn delete_thumbnail(app: &AppHandle, board_id: BoardId<'_>) -> Result<(), String> {
     remove_existing_files(app, board_id)
 }
 
@@ -134,15 +206,15 @@ pub(crate) fn delete_thumbnail(app: &AppHandle, board_id: &str) -> Result<(), St
 /// the relative path of the new file (or `None` if the source has no thumbnail file).
 pub(crate) fn copy_thumbnail(
     app: &AppHandle,
-    source_board_id: &str,
-    destination_board_id: &str,
+    source_board_id: BoardId<'_>,
+    destination_board_id: BoardId<'_>,
 ) -> Result<Option<String>, String> {
-    for extension in ["png", "jpg", "jpeg", "webp"] {
-        let source_path = file_path_for(app, source_board_id, extension)?;
+    for format in KNOWN_FORMATS {
+        let source_path = file_path_for(app, source_board_id, format)?;
         if source_path.exists() {
-            let destination_path = file_path_for(app, destination_board_id, extension)?;
+            let destination_path = file_path_for(app, destination_board_id, format)?;
             fs::copy(&source_path, &destination_path).map_err(|error| error.to_string())?;
-            return Ok(Some(relative_path_for(destination_board_id, extension)));
+            return Ok(Some(relative_path_for(destination_board_id, format)));
         }
     }
     Ok(None)

@@ -145,7 +145,11 @@ fn migrate_thumbnails_to_files(conn: &Connection, app: &AppHandle) -> Result<(),
     while let Some(row) = rows.next().map_err(|e| e.to_string())? {
         let id: String = row.get(0).map_err(|e| e.to_string())?;
         let thumbnail: String = row.get(1).map_err(|e| e.to_string())?;
-        let relative_path = crate::thumbnails::save_thumbnail(app, &id, Some(&thumbnail))?;
+        let relative_path = crate::thumbnails::save_thumbnail(
+            app,
+            crate::thumbnails::BoardId::from(id.as_str()),
+            Some(&thumbnail),
+        )?;
         updates.push((id, relative_path));
     }
     drop(rows);

@@ -87,7 +87,7 @@ pub(crate) fn delete_board(app: AppHandle, board_id: String) -> Result<(), Strin
     if deleted == 0 {
         return Err("Board not found".to_string());
     }
-    thumbnails::delete_thumbnail(&app, &board_id)?;
+    thumbnails::delete_thumbnail(&app, thumbnails::BoardId::from(board_id.as_str()))?;
 
     tx.execute(
         "DELETE FROM index_items WHERE item_type = 'board' AND item_id = ?1",
@@ -144,7 +144,11 @@ pub(crate) fn duplicate_board(
 
     let now = Utc::now();
     let new_id = Uuid::new_v4().to_string();
-    let copied_thumbnail = thumbnails::copy_thumbnail(&app, &board_id, &new_id)?;
+    let copied_thumbnail = thumbnails::copy_thumbnail(
+        &app,
+        thumbnails::BoardId::from(board_id.as_str()),
+        thumbnails::BoardId::from(new_id.as_str()),
+    )?;
     let new_board = Board {
         id: new_id,
         name: new_name,
@@ -303,7 +307,13 @@ fn next_index_position(tx: &rusqlite::Transaction<'_>) -> Result<i64, String> {
 /// Converts a board's `thumbnail` field from a relative file path (as stored in the DB)
 /// into a data URL suitable for the frontend.
 fn resolve_board_thumbnail(app: &AppHandle, mut board: Board) -> Result<Board, String> {
-    board.thumbnail = thumbnails::load_thumbnail_data_url(app, board.thumbnail.as_deref())?;
+    board.thumbnail = thumbnails::load_thumbnail_data_url(
+        app,
+        board
+            .thumbnail
+            .as_deref()
+            .map(thumbnails::RelativeThumbnailPath::from),
+    )?;
     Ok(board)
 }
 

@@ -157,7 +157,11 @@ fn persist_imported_board_thumbnail(
         return Ok(());
     };
 
-    let relative_path = thumbnails::save_thumbnail(app, created_board_id, Some(thumbnail))?;
+    let relative_path = thumbnails::save_thumbnail(
+        app,
+        thumbnails::BoardId::from(created_board_id),
+        Some(thumbnail),
+    )?;
     let conn = open_db(app)?;
     conn.execute(
         "UPDATE boards SET thumbnail = ?1 WHERE id = ?2",
@@ -254,7 +258,13 @@ fn build_export_entry(
 ) -> Result<BoardsExportEntry, String> {
     let data_str = load_board_data_value(conn, &board.id)?.unwrap_or_else(default_board_data);
     let data_json: JsonValue = serde_json::from_str(&data_str).unwrap_or(JsonValue::Null);
-    let thumbnail = thumbnails::load_thumbnail_data_url(app, board.thumbnail.as_deref())?;
+    let thumbnail = thumbnails::load_thumbnail_data_url(
+        app,
+        board
+            .thumbnail
+            .as_deref()
+            .map(thumbnails::RelativeThumbnailPath::from),
+    )?;
 
     Ok(BoardsExportEntry {
         id: board.id.clone(),
