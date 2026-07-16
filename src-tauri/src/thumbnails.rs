@@ -102,11 +102,7 @@ fn file_path_for(
     board_id: BoardId<'_>,
     format: ThumbnailFormat,
 ) -> Result<PathBuf, String> {
-    Ok(thumbnails_dir(app)?.join(format!(
-        "{}.{}",
-        board_id.as_str(),
-        format.extension()
-    )))
+    Ok(thumbnails_dir(app)?.join(format!("{}.{}", board_id.as_str(), format.extension())))
 }
 
 /// Relative path (as stored in the DB) for a given board id/extension pair.
