@@ -13,6 +13,7 @@ use crate::db::{
 use crate::models::{
     Board, BoardListItem, BoardsExportEntry, BoardsExportFile, BoardsImportResult,
 };
+use crate::thumbnails;
 
 const ACTIVE_BOARD_SETTING_KEY: &str = "active_board_id";
 
@@ -23,9 +24,15 @@ pub(crate) fn export_boards(app: AppHandle, file_path: String) -> Result<(), Str
 
     let mut boards = Vec::new();
     let mut seen = HashSet::new();
+    let mut ctx = ExportContext {
+        app: &app,
+        conn: &conn,
+        seen: &mut seen,
+        export_entries: &mut boards,
+    };
 
     for item in &index.items {
-        export_item_boards(&conn, item, &mut seen, &mut boards)?;
+        export_item_boards(&mut ctx, item)?;
     }
 
     let export_file = BoardsExportFile {
@@ -76,34 +83,33 @@ pub(crate) fn import_boards(
     Ok(BoardsImportResult { imported, skipped })
 }
 
-fn export_item_boards(
-    conn: &rusqlite::Connection,
-    item: &BoardListItem,
-    seen: &mut HashSet<String>,
-    export_entries: &mut Vec<BoardsExportEntry>,
-) -> Result<(), String> {
+/// Shared state threaded through the recursive export helpers.
+struct ExportContext<'a> {
+    app: &'a AppHandle,
+    conn: &'a rusqlite::Connection,
+    seen: &'a mut HashSet<String>,
+    export_entries: &'a mut Vec<BoardsExportEntry>,
+}
+
+fn export_item_boards(ctx: &mut ExportContext<'_>, item: &BoardListItem) -> Result<(), String> {
     match item {
-        BoardListItem::Board(board) => export_board_if_new(conn, board, seen, export_entries),
+        BoardListItem::Board(board) => export_board_if_new(ctx, board),
         BoardListItem::Folder(folder) => {
             for board in &folder.items {
-                export_board_if_new(conn, board, seen, export_entries)?;
+                export_board_if_new(ctx, board)?;
             }
             Ok(())
         }
     }
 }
 
-fn export_board_if_new(
-    conn: &rusqlite::Connection,
-    board: &Board,
-    seen: &mut HashSet<String>,
-    export_entries: &mut Vec<BoardsExportEntry>,
-) -> Result<(), String> {
-    if !seen.insert(board.id.clone()) {
+fn export_board_if_new(ctx: &mut ExportContext<'_>, board: &Board) -> Result<(), String> {
+    if !ctx.seen.insert(board.id.clone()) {
         return Ok(());
     }
 
-    export_entries.push(build_export_entry(conn, board)?);
+    let entry = build_export_entry(ctx.app, ctx.conn, board)?;
+    ctx.export_entries.push(entry);
     Ok(())
 }
 
@@ -120,6 +126,7 @@ fn import_selected_entry(
     };
 
     persist_imported_board_data(app.clone(), &created.id, entry)?;
+    persist_imported_board_thumbnail(app, &created.id, entry)?;
     register_imported_identity(entry, &final_name, seen_ids, used_names);
     Ok(true)
 }
@@ -139,6 +146,29 @@ fn persist_imported_board_data(
 
     let data_str = data_value.to_string();
     save_board_data(app, created_board_id.to_string(), data_str)
+}
+
+fn persist_imported_board_thumbnail(
+    app: &AppHandle,
+    created_board_id: &str,
+    entry: &BoardsExportEntry,
+) -> Result<(), String> {
+    let Some(thumbnail) = entry.thumbnail.as_deref() else {
+        return Ok(());
+    };
+
+    let relative_path = thumbnails::save_thumbnail(
+        app,
+        thumbnails::BoardId::from(created_board_id),
+        Some(thumbnail),
+    )?;
+    let conn = open_db(app)?;
+    conn.execute(
+        "UPDATE boards SET thumbnail = ?1 WHERE id = ?2",
+        rusqlite::params![relative_path, created_board_id],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 fn load_existing_board_ids_and_names(
@@ -222,11 +252,19 @@ fn restore_active_board(
 }
 
 fn build_export_entry(
+    app: &AppHandle,
     conn: &rusqlite::Connection,
     board: &Board,
 ) -> Result<BoardsExportEntry, String> {
     let data_str = load_board_data_value(conn, &board.id)?.unwrap_or_else(default_board_data);
     let data_json: JsonValue = serde_json::from_str(&data_str).unwrap_or(JsonValue::Null);
+    let thumbnail = thumbnails::load_thumbnail_data_url(
+        app,
+        board
+            .thumbnail
+            .as_deref()
+            .map(thumbnails::RelativeThumbnailPath::from),
+    )?;
 
     Ok(BoardsExportEntry {
         id: board.id.clone(),
@@ -234,7 +272,7 @@ fn build_export_entry(
         created_at: board.created_at,
         updated_at: board.updated_at,
         collaboration_link: board.collaboration_link.clone(),
-        thumbnail: board.thumbnail.clone(),
+        thumbnail,
         data: Some(data_json),
     })
 }

@@ -31,20 +31,20 @@ The project includes helper scripts that set up the Visual Studio environment au
 
 ```bash
 # Install dependencies first
-npm install
+pnpm install
 
 # Run in development mode
-npm run tauri tauri
+pnpm tauri dev
 ```
 
 ## Building
 
 ```bash
 # Build for production
-npm run tauri build
+pnpm tauri build
 
 # Build MSIX
-pnpm run tauri:windows:build --arch "x64,arm64" --runner pnpm
+pnpm tauri:windows:build --arch "x64,arm64" --runner pnpm
 ```
 
 ## System Test Mode
@@ -60,7 +60,7 @@ Windows PowerShell example:
 ```powershell
 $env:TAURI_TEST_MODE = "1"
 $env:TAURI_TEST_RUN_ID = "local-smoke"
-pnpm run tauri dev
+pnpm tauri dev
 ```
 
 ## System Tests (WebdriverIO + tauri-driver)
@@ -68,7 +68,7 @@ pnpm run tauri dev
 Run the system suite:
 
 ```bash
-pnpm run test:system
+pnpm test:system
 ```
 
 By default, each run uses an isolated data folder and cleans it up when the suite finishes.

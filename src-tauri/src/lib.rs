@@ -1,6 +1,7 @@
 mod commands;
 mod db;
 mod models;
+mod thumbnails;
 
 use crate::commands::board_content::{
     load_board_data, save_board_data, save_board_thumbnail, set_collaboration_link,
