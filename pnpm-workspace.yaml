@@ -1,3 +1,8 @@
+allowBuilds:
+  edgedriver: true
+  esbuild: true
+  geckodriver: true
+  skia-canvas: true
 onlyBuiltDependencies:
   - edgedriver
   - esbuild
