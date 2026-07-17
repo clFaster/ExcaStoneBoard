@@ -235,14 +235,32 @@ async function startTauriDriver() {
   }
 
   tauriDriverExitExpected = false;
+
+  const driverLogPath = path.join(artifactsDir, 'tauri-driver.log');
+  const driverLogStream = fs.createWriteStream(driverLogPath, { flags: 'a' });
+
   tauriDriverProcess = spawn(tauriDriverBinary, [], {
-    stdio: 'inherit',
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: process.env,
     shell: process.platform === 'win32',
   });
 
+  const forwardOutput = (source, target) => {
+    if (!source) {
+      return;
+    }
+    source.on('data', (chunk) => {
+      target.write(chunk);
+      driverLogStream.write(chunk);
+    });
+  };
+
+  forwardOutput(tauriDriverProcess.stdout, process.stdout);
+  forwardOutput(tauriDriverProcess.stderr, process.stderr);
+
   tauriDriverProcess.on('exit', (code) => {
     tauriDriverProcess = undefined;
+    driverLogStream.end();
 
     if (code === 0) {
       return;

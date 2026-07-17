@@ -103,69 +103,101 @@ jobs:
             Write-Host "Using msedgedriver at: $driverPath"
           }
 
-          $existingDriver = Get-Command msedgedriver -ErrorAction SilentlyContinue
-          if ($existingDriver) {
-            Write-Host "msedgedriver already available on PATH."
-            msedgedriver --version
-            exit 0
-          }
-
-          $preinstalledCandidates = @(
-            "C:\SeleniumWebDrivers\EdgeDriver\msedgedriver.exe",
-            "C:\WebDriver\msedgedriver.exe"
-          )
-
-          foreach ($candidate in $preinstalledCandidates) {
-            if (Test-Path $candidate) {
-              Add-DriverToPath $candidate
-              exit 0
+          # The Tauri app renders in the WebView2 Runtime, which updates
+          # independently from the Edge browser on the runner image. msedgedriver
+          # must match the WebView2 Runtime version or session creation hangs, so
+          # derive the target version from the runtime first and only fall back to
+          # the Edge browser version when the runtime cannot be detected.
+          function Get-WebView2Version {
+            $clientKeys = @(
+              "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+              "HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+              "HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+            )
+            foreach ($key in $clientKeys) {
+              if (Test-Path $key) {
+                $pv = (Get-ItemProperty -Path $key -ErrorAction SilentlyContinue).pv
+                if ($pv) { return $pv }
+              }
             }
+            return $null
           }
 
-          $edgeExe = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
-          if (-not (Test-Path $edgeExe)) {
-            $edgeExe = "${env:ProgramFiles}\Microsoft\Edge\Application\msedge.exe"
+          function Get-EdgeVersion {
+            $edgeExe = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
+            if (-not (Test-Path $edgeExe)) {
+              $edgeExe = "${env:ProgramFiles}\Microsoft\Edge\Application\msedge.exe"
+            }
+            if (Test-Path $edgeExe) {
+              return (Get-Item $edgeExe).VersionInfo.ProductVersion
+            }
+            return $null
           }
 
-          if (-not (Test-Path $edgeExe)) {
-            throw "Could not find Microsoft Edge executable."
+          $webView2Version = Get-WebView2Version
+          $edgeVersion = Get-EdgeVersion
+          Write-Host "Detected WebView2 Runtime version: $(if ($webView2Version) { $webView2Version } else { 'not found' })"
+          Write-Host "Detected Edge browser version: $(if ($edgeVersion) { $edgeVersion } else { 'not found' })"
+
+          $targetVersion = if ($webView2Version) { $webView2Version } else { $edgeVersion }
+          if (-not $targetVersion) {
+            throw "Could not determine WebView2 Runtime or Microsoft Edge version."
           }
 
-          $edgeVersion = (Get-Item $edgeExe).VersionInfo.ProductVersion
-          $majorVersion = $edgeVersion.Split('.')[0]
+          $majorVersion = $targetVersion.Split('.')[0]
           $driverDir = Join-Path $env:RUNNER_TEMP "msedgedriver"
           New-Item -ItemType Directory -Path $driverDir -Force | Out-Null
           $driverZipPath = Join-Path $driverDir "edgedriver.zip"
+          $downloadHost = "https://msedgedriver.microsoft.com"
 
-          $downloadHosts = @(
-            "https://msedgedriver.azureedge.net",
-            "https://msedgedriver.microsoft.com"
-          )
+          # Prefer an exact match to the WebView2 Runtime, then the Edge browser
+          # version, then the latest driver published for the major version.
+          $candidateVersions = New-Object System.Collections.Generic.List[string]
+          foreach ($candidate in @($targetVersion, $edgeVersion)) {
+            if ($candidate -and -not $candidateVersions.Contains($candidate)) {
+              $candidateVersions.Add($candidate)
+            }
+          }
+          try {
+            $latestReleaseResponse = Invoke-WebRequest -Uri "$downloadHost/LATEST_RELEASE_$majorVersion" -UseBasicParsing
+            $latestReleaseRaw = $latestReleaseResponse.Content
+            if ($latestReleaseRaw -is [byte[]]) {
+              # LATEST_RELEASE files are UTF-16 encoded, so decode the raw bytes.
+              $latestReleaseRaw = [System.Text.Encoding]::Unicode.GetString($latestReleaseRaw)
+            }
+            $latestRelease = ([string]$latestReleaseRaw -replace "[^0-9\.]", "").Trim()
+            if ($latestRelease -and -not $candidateVersions.Contains($latestRelease)) {
+              $candidateVersions.Add($latestRelease)
+            }
+          } catch {
+            Write-Host "Could not resolve LATEST_RELEASE_${majorVersion}: $($_.Exception.Message)"
+          }
 
           $downloaded = $false
           $errors = @()
-          foreach ($host in $downloadHosts) {
+          foreach ($version in $candidateVersions) {
             try {
-              $latestReleaseUrl = "$host/LATEST_RELEASE_$majorVersion"
-              $driverVersion = (Invoke-WebRequest -Uri $latestReleaseUrl -UseBasicParsing).Content.Trim()
-              $driverZipUrl = "$host/$driverVersion/edgedriver_win64.zip"
+              $driverZipUrl = "$downloadHost/$version/edgedriver_win64.zip"
+              Write-Host "Attempting to download msedgedriver $version from $driverZipUrl"
+              Invoke-WebRequest -Uri $driverZipUrl -OutFile $driverZipPath -UseBasicParsing
 
-              Invoke-WebRequest -Uri $driverZipUrl -OutFile $driverZipPath
+              Remove-Item (Join-Path $driverDir "msedgedriver.exe") -Force -ErrorAction SilentlyContinue
               Expand-Archive -Path $driverZipPath -DestinationPath $driverDir -Force
 
               $driverBinary = Join-Path $driverDir "msedgedriver.exe"
               if (Test-Path $driverBinary) {
                 Add-DriverToPath $driverBinary
+                & $driverBinary --version
                 $downloaded = $true
                 break
               }
             } catch {
-              $errors += "${host}: $($_.Exception.Message)"
+              $errors += "${version}: $($_.Exception.Message)"
             }
           }
 
           if (-not $downloaded) {
-            throw "Unable to install msedgedriver. Attempts: $($errors -join ' | ')"
+            throw "Unable to install msedgedriver matching version(s) $($candidateVersions -join ', '). Attempts: $($errors -join ' | ')"
           }
 
       - name: Verify Edge WebDriver
