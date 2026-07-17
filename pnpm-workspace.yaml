@@ -1,2 +1,5 @@
 onlyBuiltDependencies:
+  - edgedriver
   - esbuild
+  - geckodriver
+  - skia-canvas
