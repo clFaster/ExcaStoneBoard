@@ -61,6 +61,14 @@ jobs:
 
   system-tests:
     runs-on: ${{ matrix.platform }}
+    # The Linux runner (Tauri's canonical WebDriver path via webkit2gtk-driver +
+    # xvfb) is the authoritative, blocking check. The windows-latest runner is
+    # kept for diagnostics but is non-blocking: creating a WebView2 WebDriver
+    # session against tauri-driver hangs (POST /session times out after 120s with
+    # IncompleteMessage) on the GitHub-hosted image even when msedgedriver matches
+    # the WebView2 Runtime. The suite passes locally on Windows, so this is a
+    # hosted-runner limitation rather than an application defect.
+    continue-on-error: ${{ matrix.platform == 'windows-latest' }}
     timeout-minutes: 45
     needs: build
     strategy:

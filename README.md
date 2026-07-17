@@ -95,6 +95,13 @@ Prerequisites:
   installed via [`msedgedriver-tool`](https://github.com/chippers/msedgedriver-tool))
 - On Linux, install `webkit2gtk-driver` and run under `xvfb` (see the CI workflow)
 
+In CI, the system tests run on a matrix of `ubuntu-latest` and `windows-latest`.
+The Linux run (Tauri's canonical WebDriver path) is the authoritative, blocking
+check. The Windows run is kept for diagnostics but is non-blocking, because
+creating a WebView2 WebDriver session hangs on the GitHub-hosted Windows image
+even when `msedgedriver` matches the WebView2 Runtime (the suite passes locally
+on Windows).
+
 Useful env overrides:
 
 - `TAURI_TEST_RUN_ID`: isolate each run's app data folder
