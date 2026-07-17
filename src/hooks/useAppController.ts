@@ -52,6 +52,9 @@ const useCurrentBoardData = (
     };
 
     if (!activeBoardId) {
+      // Synchronously reset state when the active board is cleared; this is an
+      // intentional guarded reset in response to a dependency change, not an accidental update.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCurrentBoardData(null);
       setBoardDataLoading(false);
       return;

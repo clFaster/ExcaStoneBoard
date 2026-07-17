@@ -1050,8 +1050,7 @@ export function BoardList({
     const activeParsed = parseDragId(String(active.id));
     const overParsed = parseDragId(String(over.id));
     const overData = over.data.current as
-      | { type?: string; inFolder?: boolean; parentFolderId?: string }
-      | undefined;
+      { type?: string; inFolder?: boolean; parentFolderId?: string } | undefined;
     const isOverInFolder = overData?.inFolder ?? false;
 
     const dropPosition = calculateDropPosition(
@@ -1088,8 +1087,7 @@ export function BoardList({
     const activeParsed = parseDragId(String(active.id));
     const overParsed = parseDragId(String(over.id));
     const overData = over.data.current as
-      | { type?: string; inFolder?: boolean; parentFolderId?: string }
-      | undefined;
+      { type?: string; inFolder?: boolean; parentFolderId?: string } | undefined;
     const isOverInFolder = overData?.inFolder ?? false;
     const parentFolderId = overData?.parentFolderId;
 

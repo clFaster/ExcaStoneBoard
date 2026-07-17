@@ -23,6 +23,9 @@ export function useBoards() {
   }, []);
 
   useEffect(() => {
+    // Intentional fetch-on-mount/dependency-change; loadBoards sets loading state
+    // synchronously before its first await, which is expected here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadBoards();
   }, [loadBoards]);
 
