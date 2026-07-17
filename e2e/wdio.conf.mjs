@@ -7,218 +7,81 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
+const artifactsDir = path.resolve(__dirname, '.wdio-artifacts');
 const tauriDriverPort = 4444;
-const artifactsDir = path.resolve(repoRoot, '.wdio-artifacts');
 
 const appBinaryName = process.platform === 'win32' ? 'excastoneboard.exe' : 'excastoneboard';
 const appBinaryPath = path.resolve(repoRoot, 'src-tauri', 'target', 'debug', appBinaryName);
 
-const defaultTauriDriverPath = path.resolve(
+const tauriDriverBinary = path.resolve(
   os.homedir(),
   '.cargo',
   'bin',
   process.platform === 'win32' ? 'tauri-driver.exe' : 'tauri-driver',
 );
 
-const tauriDriverBinary =
-  process.env.TAURI_DRIVER_PATH ||
-  (fs.existsSync(defaultTauriDriverPath) ? defaultTauriDriverPath : 'tauri-driver');
+// keep track of the `tauri-driver` child process
+let tauriDriver;
+let tauriDriverShuttingDown = false;
 
-let tauriDriverProcess;
-let tauriDriverExitExpected = false;
-
-function ensureSystemTestEnvironment() {
+// The application reads these variables to isolate its data under a temporary
+// directory instead of the real app-data folder. The persistence specs rely on
+// them staying stable across `browser.reloadSession()` restarts.
+function setupTestEnvironment() {
   if (!process.env.TAURI_TEST_MODE) {
     process.env.TAURI_TEST_MODE = '1';
   }
-
-  const reuseRunId = process.env.TAURI_TEST_REUSE_RUN_ID === '1';
-  if (!reuseRunId || !process.env.TAURI_TEST_RUN_ID) {
+  if (!process.env.TAURI_TEST_RUN_ID) {
     process.env.TAURI_TEST_RUN_ID = `wdio-${Date.now()}`;
   }
-
   if (!process.env.TAURI_TEST_DATA_ROOT) {
     process.env.TAURI_TEST_DATA_ROOT = path.resolve(repoRoot, '.system-test-data');
   }
 }
 
-function sanitizeRunId(value) {
-  return value
-    .split('')
-    .map((character) => (/^[a-zA-Z0-9_-]$/.test(character) ? character : '_'))
-    .join('');
-}
-
-function sanitizeFileName(value) {
-  return value
-    .split('')
-    .map((character) => (/^[a-zA-Z0-9_.-]$/.test(character) ? character : '_'))
-    .join('');
-}
-
-function getCurrentRunDataDir() {
+function cleanupTestData() {
+  if (process.env.TAURI_TEST_KEEP_DATA === '1') {
+    return;
+  }
   const dataRoot = process.env.TAURI_TEST_DATA_ROOT;
-  const runId = process.env.TAURI_TEST_RUN_ID;
-
-  if (!dataRoot || !runId) {
-    return null;
-  }
-
-  return path.join(dataRoot, sanitizeRunId(runId));
-}
-
-async function cleanupCurrentRunData() {
-  const runDataDir = getCurrentRunDataDir();
-  if (!runDataDir) {
-    return;
-  }
-
-  await removeDirectoryWithRetries(runDataDir);
-}
-
-async function cleanupStaleRunData() {
-  const dataRoot = process.env.TAURI_TEST_DATA_ROOT;
-  const currentRunDataDir = getCurrentRunDataDir();
-  const currentRunFolder = currentRunDataDir ? path.basename(currentRunDataDir) : null;
-
-  if (!dataRoot) {
-    return;
-  }
-
-  let entries;
-  try {
-    entries = await fs.promises.readdir(dataRoot, { withFileTypes: true });
-  } catch {
-    return;
-  }
-
-  const staleRunDirs = entries
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .filter((name) => name.startsWith('wdio-') && name !== currentRunFolder)
-    .map((name) => path.join(dataRoot, name));
-
-  await Promise.all(staleRunDirs.map((directory) => removeDirectoryWithRetries(directory)));
-}
-
-async function removeDirectoryWithRetries(directory) {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    try {
-      await fs.promises.rm(directory, { recursive: true, force: true });
-      return;
-    } catch {
-      if (attempt === 4) {
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    }
+  if (dataRoot) {
+    fs.rmSync(dataRoot, { recursive: true, force: true });
   }
 }
 
-function shouldCleanupTestData() {
-  const keepData = process.env.TAURI_TEST_KEEP_DATA === '1';
-  return !keepData;
-}
-
-function buildDebugTauriApp() {
-  const result =
-    process.platform === 'win32'
-      ? spawnSync('pnpm run tauri build --debug --no-bundle', {
-          cwd: repoRoot,
-          stdio: 'inherit',
-          shell: true,
-          env: process.env,
-        })
-      : spawnSync('pnpm', ['run', 'tauri', 'build', '--debug', '--no-bundle'], {
-          cwd: repoRoot,
-          stdio: 'inherit',
-          env: process.env,
-        });
+// ensure the rust project is built since we expect this binary to exist for the webdriver sessions
+function buildDebugApp() {
+  const result = spawnSync('pnpm', ['tauri', 'build', '--debug', '--no-bundle'], {
+    cwd: repoRoot,
+    stdio: 'inherit',
+    shell: true,
+    env: process.env,
+  });
 
   if (result.status !== 0) {
-    const details = result.error ? ` (${result.error.message})` : '';
-    throw new Error(`Failed to build Tauri app for system tests${details}`);
+    throw new Error('Failed to build the Tauri debug binary for the system tests.');
   }
-
   if (!fs.existsSync(appBinaryPath)) {
     throw new Error(`Expected Tauri debug binary at ${appBinaryPath}, but it was not found.`);
   }
 }
 
-function ensureBinaryAvailable(commandName) {
-  const lookup =
-    process.platform === 'win32'
-      ? spawnSync('where', [commandName], { stdio: 'ignore', shell: true })
-      : spawnSync('which', [commandName], { stdio: 'ignore' });
-
-  return lookup.status === 0;
-}
-
-function assertAbsoluteDriverPathExists() {
-  if (path.isAbsolute(tauriDriverBinary) && !fs.existsSync(tauriDriverBinary)) {
-    throw new Error(`TAURI_DRIVER_PATH points to a missing binary: ${tauriDriverBinary}`);
-  }
-}
-
-function assertDriverBinaryResolvable() {
-  if (path.isAbsolute(tauriDriverBinary)) {
-    return;
-  }
-
-  if (ensureBinaryAvailable('tauri-driver')) {
-    return;
-  }
-
-  throw new Error('tauri-driver not found. Install it with: cargo install tauri-driver --locked');
-}
-
-function needsEdgeDriverValidation() {
-  return process.platform === 'win32' && !process.env.TAURI_NATIVE_DRIVER_PATH;
-}
-
-function assertEdgeDriverAvailable() {
-  if (ensureBinaryAvailable('msedgedriver')) {
-    return;
-  }
-
-  throw new Error(
-    'msedgedriver not found in PATH. Install a version matching Edge or set TAURI_NATIVE_DRIVER_PATH.',
-  );
-}
-
-function verifyDriverPrerequisites() {
-  assertAbsoluteDriverPathExists();
-  assertDriverBinaryResolvable();
-
-  if (needsEdgeDriverValidation()) {
-    assertEdgeDriverAvailable();
-  }
-}
-
-function waitForDriverReady(port, timeoutMs) {
+function waitForPort(port, timeoutMs) {
   const start = Date.now();
 
   return new Promise((resolve, reject) => {
     const attempt = () => {
       const socket = net.connect({ host: '127.0.0.1', port });
-
       socket.once('connect', () => {
         socket.end();
         resolve();
       });
-
       socket.once('error', () => {
         socket.destroy();
-
         if (Date.now() - start >= timeoutMs) {
-          reject(
-            new Error(
-              `Timed out waiting for tauri-driver on port ${port}. Ensure msedgedriver is available and matches Edge version.`,
-            ),
-          );
+          reject(new Error(`Timed out waiting for tauri-driver on port ${port}.`));
           return;
         }
-
         setTimeout(attempt, 250);
       });
     };
@@ -227,62 +90,48 @@ function waitForDriverReady(port, timeoutMs) {
   });
 }
 
-async function startTauriDriver() {
-  verifyDriverPrerequisites();
+// ensure we are running `tauri-driver` before the session starts so that we can proxy the webdriver requests
+function startTauriDriver() {
+  tauriDriverShuttingDown = false;
 
-  if (tauriDriverProcess && tauriDriverProcess.exitCode === null) {
-    return;
-  }
-
-  tauriDriverExitExpected = false;
-
-  const driverLogPath = path.join(artifactsDir, 'tauri-driver.log');
-  const driverLogStream = fs.createWriteStream(driverLogPath, { flags: 'a' });
-
-  tauriDriverProcess = spawn(tauriDriverBinary, [], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: process.env,
-    shell: process.platform === 'win32',
+  const logStream = fs.createWriteStream(path.join(artifactsDir, 'tauri-driver.log'), {
+    flags: 'a',
   });
 
-  const forwardOutput = (source, target) => {
-    if (!source) {
-      return;
-    }
-    source.on('data', (chunk) => {
-      target.write(chunk);
-      driverLogStream.write(chunk);
-    });
-  };
+  tauriDriver = spawn(tauriDriverBinary, [], { stdio: [null, 'pipe', 'pipe'] });
 
-  forwardOutput(tauriDriverProcess.stdout, process.stdout);
-  forwardOutput(tauriDriverProcess.stderr, process.stderr);
+  tauriDriver.stdout.on('data', (chunk) => {
+    process.stdout.write(chunk);
+    logStream.write(chunk);
+  });
+  tauriDriver.stderr.on('data', (chunk) => {
+    process.stderr.write(chunk);
+    logStream.write(chunk);
+  });
 
-  tauriDriverProcess.on('exit', (code) => {
-    tauriDriverProcess = undefined;
-    driverLogStream.end();
-
-    if (code === 0) {
-      return;
-    }
-
-    if (!tauriDriverExitExpected) {
+  tauriDriver.on('error', (error) => {
+    console.error('tauri-driver error:', error);
+    process.exit(1);
+  });
+  tauriDriver.on('exit', (code) => {
+    logStream.end();
+    if (!tauriDriverShuttingDown && code !== 0) {
       console.error(`tauri-driver exited unexpectedly with code ${code}.`);
-      process.exitCode = 1;
+      process.exit(1);
     }
   });
 
-  await waitForDriverReady(tauriDriverPort, 10000);
+  return waitForPort(tauriDriverPort, 30000);
 }
 
-function stopTauriDriver() {
-  tauriDriverExitExpected = true;
-  tauriDriverProcess?.kill();
-  tauriDriverProcess = undefined;
+// clean up the `tauri-driver` process we spawned at the start of the session
+function closeTauriDriver() {
+  tauriDriverShuttingDown = true;
+  tauriDriver?.kill();
+  tauriDriver = undefined;
 }
 
 export const config = {
-  runner: 'local',
   hostname: '127.0.0.1',
   port: tauriDriverPort,
   specs: ['./specs/system.e2e.mjs'],
@@ -297,48 +146,57 @@ export const config = {
   ],
   outputDir: artifactsDir,
   logLevel: 'warn',
-  bail: 0,
-  maxInstancesPerCapability: 1,
-  waitforTimeout: 10000,
   connectionRetryTimeout: 120000,
   connectionRetryCount: 2,
-  services: [],
+  waitforTimeout: 10000,
   framework: 'mocha',
   reporters: ['spec'],
   mochaOpts: {
     ui: 'bdd',
     timeout: 120000,
   },
-  onPrepare: async () => {
-    ensureSystemTestEnvironment();
-    await fs.promises.mkdir(path.join(artifactsDir, 'screenshots'), { recursive: true });
-    if (shouldCleanupTestData()) {
-      await cleanupStaleRunData();
-      await cleanupCurrentRunData();
-    }
-    try {
-      verifyDriverPrerequisites();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(message);
-      process.exit(1);
-    }
-    buildDebugTauriApp();
-    await startTauriDriver();
+
+  onPrepare: () => {
+    setupTestEnvironment();
+    fs.mkdirSync(path.join(artifactsDir, 'screenshots'), { recursive: true });
+    cleanupTestData();
+    buildDebugApp();
   },
-  onComplete: async () => {
-    stopTauriDriver();
-    if (shouldCleanupTestData()) {
-      await cleanupCurrentRunData();
-    }
-  },
+
+  beforeSession: () => startTauriDriver(),
+
+  afterSession: () => closeTauriDriver(),
+
+  onComplete: () => cleanupTestData(),
+
   afterTest: async (test, _context, result) => {
     if (result.passed) {
       return;
     }
-
-    const testName = sanitizeFileName(test.fullTitle || test.title || 'test-failure');
-    const screenshotPath = path.join(artifactsDir, 'screenshots', `${testName}.png`);
-    await browser.saveScreenshot(screenshotPath);
+    const testName = (test.fullTitle || test.title || 'test-failure').replace(
+      /[^a-zA-Z0-9_.-]/g,
+      '_',
+    );
+    await browser.saveScreenshot(path.join(artifactsDir, 'screenshots', `${testName}.png`));
   },
 };
+
+// note that `afterSession` might not run if the session fails to start, so we
+// also run the cleanup on shutdown to avoid leaking the `tauri-driver` process
+function onShutdown(fn) {
+  const cleanup = () => {
+    try {
+      fn();
+    } finally {
+      process.exit();
+    }
+  };
+
+  process.on('exit', fn);
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
+  process.on('SIGHUP', cleanup);
+  process.on('SIGBREAK', cleanup);
+}
+
+onShutdown(() => closeTauriDriver());

@@ -1,0 +1,14 @@
+# Marks e2e as its own pnpm project (separate lockfile + node_modules),
+# independent from the application workspace at the repository root.
+#
+# esbuild is required by the WebdriverIO CLI and is allowed to run its install
+# script. The Edge/Gecko WebDriver managers are pulled in as optional
+# dependencies of @wdio/cli, but their build scripts are intentionally skipped
+# (set to false): the system tests attach to `tauri-driver` (which proxies to
+# msedgedriver), so downloading those browser drivers is unnecessary.
+allowBuilds:
+  esbuild: true
+  edgedriver: false
+  geckodriver: false
+onlyBuiltDependencies:
+  - esbuild
