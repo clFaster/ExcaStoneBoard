@@ -94,12 +94,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NodeVersion }}
 
@@ -111,7 +111,7 @@ jobs:
           node -e "const fs=require('fs');const path='package.json';const data=JSON.parse(fs.readFileSync(path,'utf8'));data.version=process.env.APP_VERSION;fs.writeFileSync(path, JSON.stringify(data, null, 2) + '\n');"
 
       - name: Commit updated version
-        uses: EndBug/add-and-commit@v9
+        uses: EndBug/add-and-commit@v10
         with:
           add: package.json src-tauri/tauri.conf.json
           message: 'chore(release): bump version to ${{ needs.update-version.outputs.new_version }}'
@@ -143,7 +143,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare-release.outputs.release_tag }}
 
@@ -172,7 +172,7 @@ jobs:
           workspaces: src-tauri
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NodeVersion }}
 
@@ -209,7 +209,7 @@ jobs:
           msstore publish "${{ steps.find_msix.outputs.bundle_path }}" -id ${{ secrets.STORE_APP_ID }}
 
       - name: Upload Windows release artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-msixbundle
           path: ${{ steps.find_msix.outputs.bundle_path }}
@@ -224,7 +224,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare-release.outputs.release_tag }}
 
@@ -237,7 +237,7 @@ jobs:
           workspaces: src-tauri
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NodeVersion }}
 
@@ -265,13 +265,13 @@ jobs:
         run: pnpm run tauri build --bundles deb,appimage
 
       - name: Upload DEB release artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-deb
           path: src-tauri/target/release/bundle/deb/*.deb
 
       - name: Upload AppImage release artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-appimage
           path: src-tauri/target/release/bundle/appimage/*.AppImage
@@ -287,19 +287,19 @@ jobs:
 
     steps:
       - name: Download Windows artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: windows-msixbundle
           path: release-assets/windows
 
       - name: Download Linux DEB artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: linux-deb
           path: release-assets/linux-deb
 
       - name: Download Linux AppImage artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: linux-appimage
           path: release-assets/linux-appimage
