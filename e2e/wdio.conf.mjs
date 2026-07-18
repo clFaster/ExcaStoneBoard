@@ -11,7 +11,16 @@ const artifactsDir = path.resolve(__dirname, '.wdio-artifacts');
 const tauriDriverPort = 4444;
 
 const appBinaryName = process.platform === 'win32' ? 'excastoneboard.exe' : 'excastoneboard';
-const appBinaryPath = path.resolve(repoRoot, 'src-tauri', 'target', 'debug', appBinaryName);
+const defaultAppBinaryPath = path.resolve(
+  repoRoot,
+  'src-tauri',
+  'target',
+  'debug',
+  appBinaryName,
+);
+const appBinaryPath = process.env.TAURI_APP_BINARY_PATH
+  ? path.resolve(process.env.TAURI_APP_BINARY_PATH)
+  : defaultAppBinaryPath;
 
 const tauriDriverBinary = path.resolve(
   os.homedir(),
@@ -49,8 +58,16 @@ function cleanupTestData() {
   }
 }
 
-// ensure the rust project is built since we expect this binary to exist for the webdriver sessions
-function buildDebugApp() {
+// CI supplies the release binary built in the preceding job. For local runs,
+// retain the convenient fallback of building a debug binary on demand.
+function ensureAppAvailable() {
+  if (process.env.TAURI_APP_BINARY_PATH) {
+    if (!fs.existsSync(appBinaryPath)) {
+      throw new Error(`Supplied Tauri app binary was not found at ${appBinaryPath}.`);
+    }
+    return;
+  }
+
   const result = spawnSync('pnpm', ['tauri', 'build', '--debug', '--no-bundle'], {
     cwd: repoRoot,
     stdio: 'inherit',
@@ -160,7 +177,7 @@ export const config = {
     setupTestEnvironment();
     fs.mkdirSync(path.join(artifactsDir, 'screenshots'), { recursive: true });
     cleanupTestData();
-    buildDebugApp();
+    ensureAppAvailable();
   },
 
   beforeSession: () => startTauriDriver(),

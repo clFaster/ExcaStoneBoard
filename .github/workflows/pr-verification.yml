@@ -7,12 +7,8 @@ on:
       - main
 
 jobs:
-  build:
-    runs-on: ${{ matrix.platform }}
-    strategy:
-      fail-fast: false
-      matrix:
-        platform: [windows-latest]
+  checks:
+    runs-on: windows-2022
     timeout-minutes: 30
 
     steps:
@@ -56,13 +52,73 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
+  build:
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-latest
+            artifact: app-ubuntu
+            binary: src-tauri/target/release/excastoneboard
+          - platform: windows-2022
+            artifact: app-windows
+            binary: src-tauri/target/release/excastoneboard.exe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271
+        with:
+          package_json_file: ./package.json
+          cache: true
+          cache_dependency_path: ./pnpm-lock.yaml
+
+      - name: Install Linux build dependencies
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev
+
+      - name: Install application dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Build app (Tauri, no bundle)
-        run: pnpm run tauri build
+        run: pnpm run tauri build --no-bundle
+
+      - name: Upload app binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.binary }}
+          if-no-files-found: error
+          retention-days: 7
 
   system-tests:
     runs-on: ${{ matrix.platform }}
     # The Linux runner (Tauri's canonical WebDriver path via webkit2gtk-driver +
-    # xvfb) is the authoritative, blocking check. The windows-latest runner is
+    # xvfb) is the authoritative, blocking check. The Windows runner is
     # kept for diagnostics but is non-blocking: creating a WebView2 WebDriver
     # session against tauri-driver hangs (POST /session times out after 120s with
     # IncompleteMessage) on the GitHub-hosted image even when msedgedriver matches
@@ -70,11 +126,17 @@ jobs:
     # hosted-runner limitation rather than an application defect.
     continue-on-error: ${{ matrix.platform == 'windows-2022' }}
     timeout-minutes: 45
-    needs: build
+    needs: [checks, build]
     strategy:
       fail-fast: false
       matrix:
-        platform: [ubuntu-latest, windows-2022]
+        include:
+          - platform: ubuntu-latest
+            artifact: app-ubuntu
+            binary: src-tauri/target/release/excastoneboard
+          - platform: windows-2022
+            artifact: app-windows
+            binary: src-tauri/target/release/excastoneboard.exe
 
     steps:
       - name: Checkout
@@ -100,9 +162,8 @@ jobs:
           cache: true
           cache_dependency_path: '**/pnpm-lock.yaml'
 
-      # Install the Linux system dependencies Tauri needs to compile, plus the
-      # extra packages tauri-driver requires: webkit2gtk-driver (the WebKit
-      # WebDriver) and xvfb (a virtual display so the app can run headless).
+      # Install the runtime libraries required by the downloaded Tauri binary,
+      # plus webkit2gtk-driver and xvfb for headless WebDriver sessions.
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-latest'
         run: |
@@ -125,9 +186,6 @@ jobs:
           & "$HOME/.cargo/bin/msedgedriver-tool.exe"
           $PWD.Path >> $env:GITHUB_PATH
 
-      - name: Install application dependencies
-        run: pnpm install --frozen-lockfile
-
       - name: Install e2e dependencies
         run: pnpm install --frozen-lockfile
         working-directory: e2e
@@ -135,12 +193,24 @@ jobs:
       - name: Install tauri-driver
         run: cargo install tauri-driver --locked
 
+      - name: Download app binary
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ matrix.artifact }}
+          path: src-tauri/target/release
+
+      # Artifact archives do not preserve executable permission bits.
+      - name: Make app binary executable (Linux)
+        if: matrix.platform == 'ubuntu-latest'
+        run: chmod +x "${{ matrix.binary }}"
+
       # On Linux we run through xvfb-run to provide a virtual display.
       - name: Run system tests (Linux)
         if: matrix.platform == 'ubuntu-latest'
         working-directory: e2e
         env:
           TAURI_TEST_KEEP_DATA: '1'
+          TAURI_APP_BINARY_PATH: ${{ github.workspace }}/${{ matrix.binary }}
         run: xvfb-run --auto-servernum pnpm test
 
       - name: Run system tests (Windows)
@@ -148,6 +218,7 @@ jobs:
         working-directory: e2e
         env:
           TAURI_TEST_KEEP_DATA: '1'
+          TAURI_APP_BINARY_PATH: ${{ github.workspace }}/${{ matrix.binary }}
         run: pnpm test
 
       - name: Upload system test artifacts on failure
