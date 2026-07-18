@@ -7,30 +7,26 @@ on:
       - main
 
 jobs:
-  build:
-    runs-on: ${{ matrix.platform }}
-    strategy:
-      fail-fast: false
-      matrix:
-        platform: [windows-latest]
+  checks:
+    runs-on: windows-2022
     timeout-minutes: 30
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
           components: rustfmt, clippy
 
       - name: Rust cache
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
           workspaces: src-tauri
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
 
@@ -56,28 +52,34 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
-      - name: Build app (Tauri, no bundle)
-        run: pnpm run tauri build
-
-  system-tests:
-    runs-on: windows-latest
-    timeout-minutes: 45
-    needs: build
+  build:
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-latest
+            artifact: app-ubuntu
+            binary: src-tauri/target/release/excastoneboard
+          - platform: windows-2022
+            artifact: app-windows
+            binary: src-tauri/target/release/excastoneboard.exe
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
 
       - name: Rust cache
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
           workspaces: src-tauri
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
 
@@ -88,101 +90,138 @@ jobs:
           cache: true
           cache_dependency_path: ./pnpm-lock.yaml
 
-      - name: Install dependencies
+      - name: Install Linux build dependencies
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev
+
+      - name: Install application dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Build app (Tauri, no bundle)
+        run: pnpm run tauri build --no-bundle
+
+      - name: Upload app binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.binary }}
+          if-no-files-found: error
+          retention-days: 7
+
+  system-tests:
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 30
+    needs: [checks, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-latest
+            artifact: app-ubuntu
+            binary: src-tauri/target/release/excastoneboard
+          - platform: windows-2022
+            artifact: app-windows
+            binary: src-tauri/target/release/excastoneboard.exe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          workspaces: src-tauri
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271
+        with:
+          package_json_file: ./package.json
+          cache: true
+          cache_dependency_path: '**/pnpm-lock.yaml'
+
+      # Install the runtime libraries required by the downloaded Tauri binary,
+      # plus webkit2gtk-driver and xvfb for headless WebDriver sessions.
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            webkit2gtk-driver \
+            xvfb
+
+      # Install a matching Microsoft Edge WebDriver via msedgedriver-tool, which
+      # downloads the driver version that matches the runner's WebView2 Runtime.
+      - name: Install msedgedriver (Windows)
+        if: matrix.platform == 'windows-2022'
+        run: |
+          cargo install --git https://github.com/chippers/msedgedriver-tool
+          & "$HOME/.cargo/bin/msedgedriver-tool.exe"
+          $PWD.Path >> $env:GITHUB_PATH
+
+      - name: Install e2e dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: e2e
 
       - name: Install tauri-driver
         run: cargo install tauri-driver --locked
 
-      - name: Ensure Edge WebDriver is available
-        shell: pwsh
-        run: |
-          function Add-DriverToPath([string]$driverPath) {
-            $driverDir = Split-Path $driverPath -Parent
-            $driverDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-            Write-Host "Using msedgedriver at: $driverPath"
-          }
+      - name: Download app binary
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ matrix.artifact }}
+          path: src-tauri/target/release
 
-          $existingDriver = Get-Command msedgedriver -ErrorAction SilentlyContinue
-          if ($existingDriver) {
-            Write-Host "msedgedriver already available on PATH."
-            msedgedriver --version
-            exit 0
-          }
+      # Artifact archives do not preserve executable permission bits.
+      - name: Make app binary executable (Linux)
+        if: matrix.platform == 'ubuntu-latest'
+        run: chmod +x "${{ matrix.binary }}"
 
-          $preinstalledCandidates = @(
-            "C:\SeleniumWebDrivers\EdgeDriver\msedgedriver.exe",
-            "C:\WebDriver\msedgedriver.exe"
-          )
-
-          foreach ($candidate in $preinstalledCandidates) {
-            if (Test-Path $candidate) {
-              Add-DriverToPath $candidate
-              exit 0
-            }
-          }
-
-          $edgeExe = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
-          if (-not (Test-Path $edgeExe)) {
-            $edgeExe = "${env:ProgramFiles}\Microsoft\Edge\Application\msedge.exe"
-          }
-
-          if (-not (Test-Path $edgeExe)) {
-            throw "Could not find Microsoft Edge executable."
-          }
-
-          $edgeVersion = (Get-Item $edgeExe).VersionInfo.ProductVersion
-          $majorVersion = $edgeVersion.Split('.')[0]
-          $driverDir = Join-Path $env:RUNNER_TEMP "msedgedriver"
-          New-Item -ItemType Directory -Path $driverDir -Force | Out-Null
-          $driverZipPath = Join-Path $driverDir "edgedriver.zip"
-
-          $downloadHosts = @(
-            "https://msedgedriver.azureedge.net",
-            "https://msedgedriver.microsoft.com"
-          )
-
-          $downloaded = $false
-          $errors = @()
-          foreach ($host in $downloadHosts) {
-            try {
-              $latestReleaseUrl = "$host/LATEST_RELEASE_$majorVersion"
-              $driverVersion = (Invoke-WebRequest -Uri $latestReleaseUrl -UseBasicParsing).Content.Trim()
-              $driverZipUrl = "$host/$driverVersion/edgedriver_win64.zip"
-
-              Invoke-WebRequest -Uri $driverZipUrl -OutFile $driverZipPath
-              Expand-Archive -Path $driverZipPath -DestinationPath $driverDir -Force
-
-              $driverBinary = Join-Path $driverDir "msedgedriver.exe"
-              if (Test-Path $driverBinary) {
-                Add-DriverToPath $driverBinary
-                $downloaded = $true
-                break
-              }
-            } catch {
-              $errors += "${host}: $($_.Exception.Message)"
-            }
-          }
-
-          if (-not $downloaded) {
-            throw "Unable to install msedgedriver. Attempts: $($errors -join ' | ')"
-          }
-
-      - name: Verify Edge WebDriver
-        run: msedgedriver --version
-
-      - name: Run system tests
+      # On Linux we run through xvfb-run to provide a virtual display.
+      - name: Run system tests (Linux)
+        if: matrix.platform == 'ubuntu-latest'
+        working-directory: e2e
         env:
           TAURI_TEST_KEEP_DATA: '1'
-        run: pnpm run test:system
+          TAURI_APP_BINARY_PATH: ${{ github.workspace }}/${{ matrix.binary }}
+        run: xvfb-run --auto-servernum pnpm test
+
+      - name: Run system tests (Windows)
+        if: matrix.platform == 'windows-2022'
+        working-directory: e2e
+        env:
+          TAURI_TEST_KEEP_DATA: '1'
+          TAURI_APP_BINARY_PATH: ${{ github.workspace }}/${{ matrix.binary }}
+        run: pnpm test
 
       - name: Upload system test artifacts on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: system-test-artifacts-${{ github.run_id }}
+          name: system-test-artifacts-${{ matrix.platform }}-${{ github.run_id }}
           path: |
-            .wdio-artifacts
+            e2e/.wdio-artifacts
             .system-test-data
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
+

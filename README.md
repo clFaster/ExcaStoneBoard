@@ -65,26 +65,48 @@ pnpm tauri dev
 
 ## System Tests (WebdriverIO + tauri-driver)
 
-Run the system suite:
+The system tests live in a self-contained project under [`e2e/`](e2e/) with their
+own `package.json` and lockfile, following the
+[official Tauri WebDriver example](https://v2.tauri.app/develop/tests/webdriver/example/webdriverio/).
+
+Run the system suite from the repository root:
 
 ```bash
 pnpm test:system
 ```
 
-By default, each run uses an isolated data folder and cleans it up when the suite finishes.
+This installs the `e2e` dependencies (if needed) and runs the suite. You can
+also run it directly inside the project:
+
+```bash
+pnpm --dir e2e install
+pnpm --dir e2e test
+```
+
+The WebdriverIO config builds the Tauri debug binary automatically
+(`tauri build --debug --no-bundle`) before starting the tests, and by default
+each run uses an isolated data folder that is cleaned up when the suite
+finishes.
 
 Prerequisites:
 
 - Install `tauri-driver`: `cargo install tauri-driver --locked`
-- On Windows, ensure `msedgedriver` is installed and version-matched to Edge
+- On Windows, ensure a matching `msedgedriver` is on `PATH` (in CI this is
+  installed via [`msedgedriver-tool`](https://github.com/chippers/msedgedriver-tool))
+- On Linux, install `webkit2gtk-driver` and run under `xvfb` (see the CI workflow)
+
+In CI, the system tests run on a matrix of `ubuntu-latest` and `windows-latest`.
+The Linux run (Tauri's canonical WebDriver path) is the authoritative, blocking
+check. The Windows run is kept for diagnostics but is non-blocking, because
+creating a WebView2 WebDriver session hangs on the GitHub-hosted Windows image
+even when `msedgedriver` matches the WebView2 Runtime (the suite passes locally
+on Windows).
 
 Useful env overrides:
 
 - `TAURI_TEST_RUN_ID`: isolate each run's app data folder
-- `TAURI_TEST_REUSE_RUN_ID=1`: reuse a fixed `TAURI_TEST_RUN_ID` across runs
 - `TAURI_TEST_DATA_ROOT`: custom root folder for system-test data
 - `TAURI_TEST_KEEP_DATA=1`: keep run data after test completion (no cleanup)
-- `TAURI_DRIVER_PATH`: explicit path to `tauri-driver`
 - `TAURI_TEST_EXPORT_PATH` / `TAURI_TEST_IMPORT_PATH`: deterministic transfer file paths
 
 Current automated scenarios (`e2e/specs/system.e2e.mjs`):
