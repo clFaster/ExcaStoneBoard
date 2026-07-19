@@ -54,6 +54,10 @@ export interface BoardsImportResult {
   skipped: number;
 }
 
+export interface BoardsImportResponse extends BoardsImportResult {
+  index: BoardsIndex;
+}
+
 export interface ExcalidrawData {
   elements: ExcalidrawElement[];
   appState?: Partial<AppState>;

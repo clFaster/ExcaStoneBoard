@@ -312,7 +312,7 @@ fn next_index_position(tx: &rusqlite::Transaction<'_>) -> Result<i64, String> {
     .map_err(|error| error.to_string())
 }
 
-fn load_resolved_boards_index(
+pub(crate) fn load_resolved_boards_index(
     app: &AppHandle,
     conn: &rusqlite::Connection,
 ) -> Result<BoardsIndex, String> {

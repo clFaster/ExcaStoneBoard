@@ -61,4 +61,5 @@ pub struct BoardsExportFile {
 pub struct BoardsImportResult {
     pub imported: usize,
     pub skipped: usize,
+    pub index: BoardsIndex,
 }

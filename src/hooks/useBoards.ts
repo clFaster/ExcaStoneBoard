@@ -165,6 +165,7 @@ export function useBoards() {
     loading,
     error,
     loadBoards,
+    applyBoardsIndex: applyIndex,
     createBoard,
     renameBoard,
     deleteBoard,
