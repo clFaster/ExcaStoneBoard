@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Board, BoardsIndex, BoardListItem, ExcalidrawData } from '../types/board';
+import {
+  Board,
+  BoardMutationResult,
+  BoardsIndex,
+  BoardListItem,
+  ExcalidrawData,
+} from '../types/board';
 
 export function useBoards() {
   const [items, setItems] = useState<BoardListItem[]>([]);
@@ -29,23 +35,21 @@ export function useBoards() {
     loadBoards();
   }, [loadBoards]);
 
-  const runAndReload = useCallback(
-    async <T>(action: () => Promise<T>, fallback: T): Promise<T> => {
-      try {
-        const result = await action();
-        await loadBoards();
-        setError(null);
-        return result;
-      } catch (e) {
-        setError(String(e));
-        return fallback;
-      }
-    },
-    [loadBoards],
-  );
+  const applyIndex = useCallback((index: BoardsIndex) => {
+    setItems(index.items);
+    setActiveBoardId(index.active_board_id);
+  }, []);
 
   const createBoard = async (name: string): Promise<Board | null> => {
-    return runAndReload(() => invoke<Board>('create_board', { name }), null);
+    try {
+      const result = await invoke<BoardMutationResult>('create_board', { name });
+      applyIndex(result.index);
+      setError(null);
+      return result.board;
+    } catch (e) {
+      setError(String(e));
+      return null;
+    }
   };
 
   const renameBoard = async (boardId: string, newName: string): Promise<boolean> => {
@@ -76,16 +80,22 @@ export function useBoards() {
   };
 
   const deleteBoard = async (boardId: string): Promise<boolean> => {
-    return runAndReload(async () => {
-      await invoke('delete_board', { boardId });
+    try {
+      const index = await invoke<BoardsIndex>('delete_board', { boardId });
+      applyIndex(index);
+      setError(null);
       return true;
-    }, false);
+    } catch (e) {
+      setError(String(e));
+      return false;
+    }
   };
 
   const setActiveBoard = async (boardId: string): Promise<boolean> => {
     try {
       await invoke('set_active_board', { boardId });
       setActiveBoardId(boardId);
+      setError(null);
       return true;
     } catch (e) {
       setError(String(e));
@@ -94,7 +104,15 @@ export function useBoards() {
   };
 
   const duplicateBoard = async (boardId: string, newName: string): Promise<Board | null> => {
-    return runAndReload(() => invoke<Board>('duplicate_board', { boardId, newName }), null);
+    try {
+      const result = await invoke<BoardMutationResult>('duplicate_board', { boardId, newName });
+      applyIndex(result.index);
+      setError(null);
+      return result.board;
+    } catch (e) {
+      setError(String(e));
+      return null;
+    }
   };
 
   const saveBoardData = useCallback(
@@ -155,8 +173,8 @@ export function useBoards() {
     setBoardsIndex: async (nextItems: BoardListItem[]): Promise<boolean> => {
       try {
         const index = await invoke<BoardsIndex>('set_boards_index', { items: nextItems });
-        setItems(index.items);
-        setActiveBoardId(index.active_board_id);
+        applyIndex(index);
+        setError(null);
         return true;
       } catch (e) {
         setError(String(e));

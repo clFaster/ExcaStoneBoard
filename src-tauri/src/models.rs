@@ -31,6 +31,12 @@ pub struct BoardsIndex {
     pub active_board_id: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct BoardMutationResult {
+    pub board: Board,
+    pub index: BoardsIndex,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BoardsExportEntry {
     pub id: String,

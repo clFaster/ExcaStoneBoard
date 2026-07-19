@@ -5,7 +5,7 @@ use std::fs;
 use tauri::AppHandle;
 
 use crate::commands::board_content::save_board_data;
-use crate::commands::boards::create_board;
+use crate::commands::boards::create_board_record;
 use crate::db::{
     default_board_data, get_setting, load_board_data_value, load_boards_index_from_db, open_db,
     set_setting,
@@ -120,7 +120,7 @@ fn import_selected_entry(
     used_names: &mut HashSet<String>,
 ) -> Result<bool, String> {
     let final_name = resolve_import_name(entry, seen_ids, used_names);
-    let created = match create_board(app.clone(), final_name.clone()) {
+    let created = match create_board_record(app, final_name.clone()) {
         Ok(board) => board,
         Err(_) => return Ok(false),
     };
