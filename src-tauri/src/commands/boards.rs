@@ -29,7 +29,7 @@ pub(crate) fn create_board(app: AppHandle, name: String) -> Result<BoardMutation
 }
 
 pub(crate) fn create_board_record(app: &AppHandle, name: String) -> Result<Board, String> {
-    let mut conn = open_db(&app)?;
+    let mut conn = open_db(app)?;
     insert_new_board(&mut conn, name)
 }
 
