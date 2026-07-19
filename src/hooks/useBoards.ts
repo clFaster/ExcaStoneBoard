@@ -40,20 +40,27 @@ export function useBoards() {
     setActiveBoardId(index.active_board_id);
   }, []);
 
-  const createBoard = async (name: string): Promise<Board | null> => {
+  const runMutation = useCallback(async <T>(action: () => Promise<T>, fallback: T): Promise<T> => {
     try {
-      const result = await invoke<BoardMutationResult>('create_board', { name });
-      applyIndex(result.index);
+      const result = await action();
       setError(null);
-      return result.board;
+      return result;
     } catch (e) {
       setError(String(e));
-      return null;
+      return fallback;
     }
+  }, []);
+
+  const createBoard = (name: string): Promise<Board | null> => {
+    return runMutation(async () => {
+      const result = await invoke<BoardMutationResult>('create_board', { name });
+      applyIndex(result.index);
+      return result.board;
+    }, null);
   };
 
-  const renameBoard = async (boardId: string, newName: string): Promise<boolean> => {
-    try {
+  const renameBoard = (boardId: string, newName: string): Promise<boolean> => {
+    return runMutation(async () => {
       const renamedBoard = await invoke<Board>('rename_board', { boardId, newName });
       setItems((currentItems) =>
         currentItems.map((item) => {
@@ -71,63 +78,41 @@ export function useBoards() {
           };
         }),
       );
-      setError(null);
       return true;
-    } catch (e) {
-      setError(String(e));
-      return false;
-    }
+    }, false);
   };
 
-  const deleteBoard = async (boardId: string): Promise<boolean> => {
-    try {
+  const deleteBoard = (boardId: string): Promise<boolean> => {
+    return runMutation(async () => {
       const index = await invoke<BoardsIndex>('delete_board', { boardId });
       applyIndex(index);
-      setError(null);
       return true;
-    } catch (e) {
-      setError(String(e));
-      return false;
-    }
+    }, false);
   };
 
-  const setActiveBoard = async (boardId: string): Promise<boolean> => {
-    try {
+  const setActiveBoard = (boardId: string): Promise<boolean> => {
+    return runMutation(async () => {
       await invoke('set_active_board', { boardId });
       setActiveBoardId(boardId);
-      setError(null);
       return true;
-    } catch (e) {
-      setError(String(e));
-      return false;
-    }
+    }, false);
   };
 
-  const duplicateBoard = async (boardId: string, newName: string): Promise<Board | null> => {
-    try {
+  const duplicateBoard = (boardId: string, newName: string): Promise<Board | null> => {
+    return runMutation(async () => {
       const result = await invoke<BoardMutationResult>('duplicate_board', { boardId, newName });
       applyIndex(result.index);
-      setError(null);
       return result.board;
-    } catch (e) {
-      setError(String(e));
-      return null;
-    }
+    }, null);
   };
 
   const saveBoardData = useCallback(
-    async (boardId: string, data: ExcalidrawData): Promise<boolean> => {
-      try {
-        // Serialize ExcalidrawData to JSON string for storage
-        const dataStr = JSON.stringify(data);
-        await invoke('save_board_data', { boardId, data: dataStr });
+    (boardId: string, data: ExcalidrawData): Promise<boolean> =>
+      runMutation(async () => {
+        await invoke('save_board_data', { boardId, data: JSON.stringify(data) });
         return true;
-      } catch (e) {
-        setError(String(e));
-        return false;
-      }
-    },
-    [],
+      }, false),
+    [runMutation],
   );
 
   const loadBoardData = useCallback(async (boardId: string): Promise<ExcalidrawData | null> => {
@@ -171,17 +156,12 @@ export function useBoards() {
     deleteBoard,
     setActiveBoard,
     duplicateBoard,
-    setBoardsIndex: async (nextItems: BoardListItem[]): Promise<boolean> => {
-      try {
+    setBoardsIndex: (nextItems: BoardListItem[]): Promise<boolean> =>
+      runMutation(async () => {
         const index = await invoke<BoardsIndex>('set_boards_index', { items: nextItems });
         applyIndex(index);
-        setError(null);
         return true;
-      } catch (e) {
-        setError(String(e));
-        return false;
-      }
-    },
+      }, false),
     saveBoardData,
     loadBoardData,
     saveBoardThumbnail,
