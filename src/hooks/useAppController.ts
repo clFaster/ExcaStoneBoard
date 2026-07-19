@@ -4,7 +4,13 @@ import { save } from '@tauri-apps/plugin-dialog';
 import type { ExcalidrawFrameHandle } from '../components/ExcalidrawFrame';
 import { useBoards } from './useBoards';
 import { useUiPreferences } from './useUiPreferences';
-import type { BoardListItem, BoardsImportResult, ExcalidrawData } from '../types/board';
+import type {
+  BoardListItem,
+  BoardsImportResponse,
+  BoardsImportResult,
+  BoardsIndex,
+  ExcalidrawData,
+} from '../types/board';
 
 type FrameExportAction = 'exportPng' | 'copyPng' | 'exportSvg';
 type ExcalidrawRef = { current: ExcalidrawFrameHandle | null };
@@ -145,7 +151,7 @@ const useFrameExportActions = (excalidrawRef: ExcalidrawRef) => {
 
 const useBoardsTransferActions = (
   excalidrawRef: ExcalidrawRef,
-  loadBoards: () => Promise<void>,
+  applyBoardsIndex: (index: BoardsIndex) => void,
 ) => {
   const [boardsExportBusy, setBoardsExportBusy] = useState(false);
   const [boardsImportBusy, setBoardsImportBusy] = useState(false);
@@ -195,11 +201,11 @@ const useBoardsTransferActions = (
       setSettingsError(null);
 
       try {
-        const result = await invoke<BoardsImportResult>('import_boards', {
+        const result = await invoke<BoardsImportResponse>('import_boards', {
           filePath,
           selectedIndices,
         });
-        await loadBoards();
+        applyBoardsIndex(result.index);
         return result;
       } catch (e) {
         console.error('Boards import failed:', e);
@@ -209,7 +215,7 @@ const useBoardsTransferActions = (
         setBoardsImportBusy(false);
       }
     },
-    [boardsImportBusy, loadBoards],
+    [applyBoardsIndex, boardsImportBusy],
   );
 
   return {
@@ -291,7 +297,7 @@ export function useAppController() {
     activeBoardId,
     loadBoardData,
     saveBoardData,
-    loadBoards,
+    applyBoardsIndex,
     setActiveBoard,
     saveBoardThumbnail,
   } = boards;
@@ -320,7 +326,7 @@ export function useAppController() {
     settingsError,
     handleExportBoards,
     handleImportBoards,
-  } = useBoardsTransferActions(excalidrawRef, loadBoards);
+  } = useBoardsTransferActions(excalidrawRef, applyBoardsIndex);
 
   const { persistThumbnail, handleDataChange } = useBoardPersistenceActions(
     saveBoardData,

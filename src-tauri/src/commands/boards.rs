@@ -8,7 +8,7 @@ use crate::db::{
     get_board_by_id, get_setting, load_board_data_value, load_boards_index_from_db,
     normalize_active_board_id, open_db, set_setting,
 };
-use crate::models::{Board, BoardFolder, BoardListItem, BoardsIndex};
+use crate::models::{Board, BoardFolder, BoardListItem, BoardMutationResult, BoardsIndex};
 use crate::thumbnails;
 
 const ACTIVE_BOARD_SETTING_KEY: &str = "active_board_id";
@@ -18,14 +18,22 @@ struct BoardDataPayload(String);
 #[tauri::command]
 pub(crate) fn get_boards(app: AppHandle) -> Result<BoardsIndex, String> {
     let conn = open_db(&app)?;
-    let index = load_boards_index_from_db(&conn)?;
-    let index = normalize_active_board_id(&conn, index)?;
-    resolve_index_thumbnails(&app, index)
+    load_resolved_boards_index(&app, &conn)
 }
 
 #[tauri::command]
-pub(crate) fn create_board(app: AppHandle, name: String) -> Result<Board, String> {
+pub(crate) fn create_board(app: AppHandle, name: String) -> Result<BoardMutationResult, String> {
     let mut conn = open_db(&app)?;
+    let board = insert_new_board(&mut conn, name)?;
+    build_mutation_result(&app, &conn, &board.id)
+}
+
+pub(crate) fn create_board_record(app: &AppHandle, name: String) -> Result<Board, String> {
+    let mut conn = open_db(app)?;
+    insert_new_board(&mut conn, name)
+}
+
+fn insert_new_board(conn: &mut rusqlite::Connection, name: String) -> Result<Board, String> {
     let now = Utc::now();
     let board = Board {
         id: Uuid::new_v4().to_string(),
@@ -72,7 +80,7 @@ pub(crate) fn rename_board(
 }
 
 #[tauri::command]
-pub(crate) fn delete_board(app: AppHandle, board_id: String) -> Result<(), String> {
+pub(crate) fn delete_board(app: AppHandle, board_id: String) -> Result<BoardsIndex, String> {
     let mut conn = open_db(&app)?;
     let tx = conn.transaction().map_err(|error| error.to_string())?;
 
@@ -117,7 +125,7 @@ pub(crate) fn delete_board(app: AppHandle, board_id: String) -> Result<(), Strin
     }
 
     tx.commit().map_err(|error| error.to_string())?;
-    Ok(())
+    load_resolved_boards_index(&app, &conn)
 }
 
 #[tauri::command]
@@ -135,7 +143,7 @@ pub(crate) fn duplicate_board(
     app: AppHandle,
     board_id: String,
     new_name: String,
-) -> Result<Board, String> {
+) -> Result<BoardMutationResult, String> {
     let mut conn = open_db(&app)?;
     let _original = get_board_by_id(&conn, &board_id)?;
     let original_data = BoardDataPayload(
@@ -162,7 +170,7 @@ pub(crate) fn duplicate_board(
     insert_board_with_data(&tx, &new_board, &original_data)?;
 
     tx.commit().map_err(|error| error.to_string())?;
-    resolve_board_thumbnail(&app, new_board)
+    build_mutation_result(&app, &conn, &new_board.id)
 }
 
 #[tauri::command]
@@ -302,6 +310,35 @@ fn next_index_position(tx: &rusqlite::Transaction<'_>) -> Result<i64, String> {
         |row| row.get(0),
     )
     .map_err(|error| error.to_string())
+}
+
+pub(crate) fn load_resolved_boards_index(
+    app: &AppHandle,
+    conn: &rusqlite::Connection,
+) -> Result<BoardsIndex, String> {
+    let index = load_boards_index_from_db(conn)?;
+    let index = normalize_active_board_id(conn, index)?;
+    resolve_index_thumbnails(app, index)
+}
+
+fn build_mutation_result(
+    app: &AppHandle,
+    conn: &rusqlite::Connection,
+    board_id: &str,
+) -> Result<BoardMutationResult, String> {
+    let index = load_resolved_boards_index(app, conn)?;
+    let board = find_board_in_index(&index.items, board_id)
+        .cloned()
+        .ok_or_else(|| "Created board missing from index".to_string())?;
+    Ok(BoardMutationResult { board, index })
+}
+
+fn find_board_in_index<'a>(items: &'a [BoardListItem], board_id: &str) -> Option<&'a Board> {
+    items.iter().find_map(|item| match item {
+        BoardListItem::Board(board) if board.id == board_id => Some(board),
+        BoardListItem::Folder(folder) => folder.items.iter().find(|board| board.id == board_id),
+        BoardListItem::Board(_) => None,
+    })
 }
 
 /// Converts a board's `thumbnail` field from a relative file path (as stored in the DB)

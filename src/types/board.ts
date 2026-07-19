@@ -28,6 +28,11 @@ export interface BoardsIndex {
   active_board_id: string | null;
 }
 
+export interface BoardMutationResult {
+  board: Board;
+  index: BoardsIndex;
+}
+
 export interface BoardsExportEntry {
   id: string;
   name: string;
@@ -47,6 +52,10 @@ export interface BoardsExportFile {
 export interface BoardsImportResult {
   imported: number;
   skipped: number;
+}
+
+export interface BoardsImportResponse extends BoardsImportResult {
+  index: BoardsIndex;
 }
 
 export interface ExcalidrawData {

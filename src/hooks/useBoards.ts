@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Board, BoardsIndex, BoardListItem, ExcalidrawData } from '../types/board';
+import {
+  Board,
+  BoardMutationResult,
+  BoardsIndex,
+  BoardListItem,
+  ExcalidrawData,
+} from '../types/board';
 
 export function useBoards() {
   const [items, setItems] = useState<BoardListItem[]>([]);
@@ -29,27 +35,32 @@ export function useBoards() {
     loadBoards();
   }, [loadBoards]);
 
-  const runAndReload = useCallback(
-    async <T>(action: () => Promise<T>, fallback: T): Promise<T> => {
-      try {
-        const result = await action();
-        await loadBoards();
-        setError(null);
-        return result;
-      } catch (e) {
-        setError(String(e));
-        return fallback;
-      }
-    },
-    [loadBoards],
-  );
+  const applyIndex = useCallback((index: BoardsIndex) => {
+    setItems(index.items);
+    setActiveBoardId(index.active_board_id);
+  }, []);
 
-  const createBoard = async (name: string): Promise<Board | null> => {
-    return runAndReload(() => invoke<Board>('create_board', { name }), null);
+  const runMutation = useCallback(async <T>(action: () => Promise<T>, fallback: T): Promise<T> => {
+    try {
+      const result = await action();
+      setError(null);
+      return result;
+    } catch (e) {
+      setError(String(e));
+      return fallback;
+    }
+  }, []);
+
+  const createBoard = (name: string): Promise<Board | null> => {
+    return runMutation(async () => {
+      const result = await invoke<BoardMutationResult>('create_board', { name });
+      applyIndex(result.index);
+      return result.board;
+    }, null);
   };
 
-  const renameBoard = async (boardId: string, newName: string): Promise<boolean> => {
-    try {
+  const renameBoard = (boardId: string, newName: string): Promise<boolean> => {
+    return runMutation(async () => {
       const renamedBoard = await invoke<Board>('rename_board', { boardId, newName });
       setItems((currentItems) =>
         currentItems.map((item) => {
@@ -67,49 +78,41 @@ export function useBoards() {
           };
         }),
       );
-      setError(null);
-      return true;
-    } catch (e) {
-      setError(String(e));
-      return false;
-    }
-  };
-
-  const deleteBoard = async (boardId: string): Promise<boolean> => {
-    return runAndReload(async () => {
-      await invoke('delete_board', { boardId });
       return true;
     }, false);
   };
 
-  const setActiveBoard = async (boardId: string): Promise<boolean> => {
-    try {
+  const deleteBoard = (boardId: string): Promise<boolean> => {
+    return runMutation(async () => {
+      const index = await invoke<BoardsIndex>('delete_board', { boardId });
+      applyIndex(index);
+      return true;
+    }, false);
+  };
+
+  const setActiveBoard = (boardId: string): Promise<boolean> => {
+    return runMutation(async () => {
       await invoke('set_active_board', { boardId });
       setActiveBoardId(boardId);
       return true;
-    } catch (e) {
-      setError(String(e));
-      return false;
-    }
+    }, false);
   };
 
-  const duplicateBoard = async (boardId: string, newName: string): Promise<Board | null> => {
-    return runAndReload(() => invoke<Board>('duplicate_board', { boardId, newName }), null);
+  const duplicateBoard = (boardId: string, newName: string): Promise<Board | null> => {
+    return runMutation(async () => {
+      const result = await invoke<BoardMutationResult>('duplicate_board', { boardId, newName });
+      applyIndex(result.index);
+      return result.board;
+    }, null);
   };
 
   const saveBoardData = useCallback(
-    async (boardId: string, data: ExcalidrawData): Promise<boolean> => {
-      try {
-        // Serialize ExcalidrawData to JSON string for storage
-        const dataStr = JSON.stringify(data);
-        await invoke('save_board_data', { boardId, data: dataStr });
+    (boardId: string, data: ExcalidrawData): Promise<boolean> =>
+      runMutation(async () => {
+        await invoke('save_board_data', { boardId, data: JSON.stringify(data) });
         return true;
-      } catch (e) {
-        setError(String(e));
-        return false;
-      }
-    },
-    [],
+      }, false),
+    [runMutation],
   );
 
   const loadBoardData = useCallback(async (boardId: string): Promise<ExcalidrawData | null> => {
@@ -147,22 +150,18 @@ export function useBoards() {
     loading,
     error,
     loadBoards,
+    applyBoardsIndex: applyIndex,
     createBoard,
     renameBoard,
     deleteBoard,
     setActiveBoard,
     duplicateBoard,
-    setBoardsIndex: async (nextItems: BoardListItem[]): Promise<boolean> => {
-      try {
+    setBoardsIndex: (nextItems: BoardListItem[]): Promise<boolean> =>
+      runMutation(async () => {
         const index = await invoke<BoardsIndex>('set_boards_index', { items: nextItems });
-        setItems(index.items);
-        setActiveBoardId(index.active_board_id);
+        applyIndex(index);
         return true;
-      } catch (e) {
-        setError(String(e));
-        return false;
-      }
-    },
+      }, false),
     saveBoardData,
     loadBoardData,
     saveBoardThumbnail,
