@@ -715,7 +715,7 @@ export function BoardList({
   // Cleanup folders (convert single-item folders to boards, remove empty ones)
   useEffect(() => {
     const normalized = cleanupFolders(items);
-    if (JSON.stringify(normalized) !== JSON.stringify(items)) {
+    if (normalized !== items) {
       onUpdateItems(normalized);
     }
   }, [items, onUpdateItems]);
