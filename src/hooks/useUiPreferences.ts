@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -16,11 +16,9 @@ interface UiPreferencesState {
   sidebarCollapsed: boolean;
 }
 
-type LegacyUiPreferences = Record<UiPreferenceField, boolean | null>;
 type UiPreferenceMeta = {
   settingKey: string;
   persistWarning: string;
-  migrationWarning: string;
 };
 
 const DEFAULT_UI_PREFERENCES: UiPreferencesState = {
@@ -29,104 +27,33 @@ const DEFAULT_UI_PREFERENCES: UiPreferencesState = {
   sidebarCollapsed: false,
 };
 
-// TODO(#38): Remove this legacy localStorage migration layer after the DB-backed preferences rollout window.
-const LEGACY_STORAGE_KEYS: Record<UiPreferenceField, string> = {
-  hideExportRow: 'boards.hideExportRow',
-  showTimestamps: 'boards.showTimestamps',
-  sidebarCollapsed: 'boards.sidebarCollapsed',
-};
-
 const PREFERENCE_META: Record<UiPreferenceField, UiPreferenceMeta> = {
   hideExportRow: {
     settingKey: 'hide_export_row',
     persistWarning: 'Failed to persist hide export row preference:',
-    migrationWarning: 'Failed to migrate hide export row preference:',
   },
   showTimestamps: {
     settingKey: 'show_timestamps',
     persistWarning: 'Failed to persist show timestamps preference:',
-    migrationWarning: 'Failed to migrate show timestamps preference:',
   },
   sidebarCollapsed: {
     settingKey: 'sidebar_collapsed',
     persistWarning: 'Failed to persist sidebar collapsed preference:',
-    migrationWarning: 'Failed to migrate sidebar collapsed preference:',
   },
 };
 
-const parseLegacyBoolean = (storageKey: string): boolean | null => {
-  try {
-    const stored = localStorage.getItem(storageKey);
-    if (stored === null) {
-      return null;
-    }
-    return Boolean(JSON.parse(stored));
-  } catch {
-    return null;
-  }
-};
-
-const readLegacyPreferences = (): LegacyUiPreferences => ({
-  hideExportRow: parseLegacyBoolean(LEGACY_STORAGE_KEYS.hideExportRow),
-  showTimestamps: parseLegacyBoolean(LEGACY_STORAGE_KEYS.showTimestamps),
-  sidebarCollapsed: parseLegacyBoolean(LEGACY_STORAGE_KEYS.sidebarCollapsed),
-});
-
-const persistUiPreference = (
-  field: UiPreferenceField,
-  value: boolean,
-  useMigrationWarning = false,
-) => {
-  const { settingKey, persistWarning, migrationWarning } = PREFERENCE_META[field];
-  const warning = useMigrationWarning ? migrationWarning : persistWarning;
-
+const persistUiPreference = (field: UiPreferenceField, value: boolean) => {
+  const { settingKey, persistWarning } = PREFERENCE_META[field];
   void invoke('set_ui_preference', { key: settingKey, value }).catch((error) => {
-    console.warn(warning, error);
+    console.warn(persistWarning, error);
   });
 };
 
-const buildInitialPreferences = (legacy: LegacyUiPreferences): UiPreferencesState => ({
-  hideExportRow: legacy.hideExportRow ?? DEFAULT_UI_PREFERENCES.hideExportRow,
-  showTimestamps: legacy.showTimestamps ?? DEFAULT_UI_PREFERENCES.showTimestamps,
-  sidebarCollapsed: legacy.sidebarCollapsed ?? DEFAULT_UI_PREFERENCES.sidebarCollapsed,
+const resolveStoredPreferences = (stored: UiPreferencesResponse): UiPreferencesState => ({
+  hideExportRow: stored.hide_export_row ?? DEFAULT_UI_PREFERENCES.hideExportRow,
+  showTimestamps: stored.show_timestamps ?? DEFAULT_UI_PREFERENCES.showTimestamps,
+  sidebarCollapsed: stored.sidebar_collapsed ?? DEFAULT_UI_PREFERENCES.sidebarCollapsed,
 });
-
-const resolveStoredPreferences = (
-  stored: UiPreferencesResponse,
-  legacy: LegacyUiPreferences,
-): UiPreferencesState => ({
-  hideExportRow:
-    stored.hide_export_row ?? legacy.hideExportRow ?? DEFAULT_UI_PREFERENCES.hideExportRow,
-  showTimestamps:
-    stored.show_timestamps ?? legacy.showTimestamps ?? DEFAULT_UI_PREFERENCES.showTimestamps,
-  sidebarCollapsed:
-    stored.sidebar_collapsed ?? legacy.sidebarCollapsed ?? DEFAULT_UI_PREFERENCES.sidebarCollapsed,
-});
-
-const getStoredValue = (
-  stored: UiPreferencesResponse,
-  field: UiPreferenceField,
-): boolean | null => {
-  switch (field) {
-    case 'hideExportRow':
-      return stored.hide_export_row;
-    case 'showTimestamps':
-      return stored.show_timestamps;
-    case 'sidebarCollapsed':
-      return stored.sidebar_collapsed;
-  }
-};
-
-const migrateLegacyPreferences = (stored: UiPreferencesResponse, legacy: LegacyUiPreferences) => {
-  const fields: UiPreferenceField[] = ['hideExportRow', 'showTimestamps', 'sidebarCollapsed'];
-  for (const field of fields) {
-    const storedValue = getStoredValue(stored, field);
-    const legacyValue = legacy[field];
-    if (storedValue === null && legacyValue !== null) {
-      persistUiPreference(field, legacyValue, true);
-    }
-  }
-};
 
 const applyPreferenceUpdate = (
   setPreferences: Dispatch<SetStateAction<UiPreferencesState>>,
@@ -151,10 +78,7 @@ const updatePreference = (
 };
 
 export function useUiPreferences() {
-  const legacyPreferences = useMemo(() => readLegacyPreferences(), []);
-  const [preferences, setPreferences] = useState<UiPreferencesState>(() =>
-    buildInitialPreferences(legacyPreferences),
-  );
+  const [preferences, setPreferences] = useState<UiPreferencesState>(DEFAULT_UI_PREFERENCES);
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
 
   useEffect(() => {
@@ -163,9 +87,8 @@ export function useUiPreferences() {
     const handleLoadedPreferences = (storedPreferences: UiPreferencesResponse) => {
       if (cancelled) return;
 
-      setPreferences(resolveStoredPreferences(storedPreferences, legacyPreferences));
+      setPreferences(resolveStoredPreferences(storedPreferences));
       setPreferencesLoaded(true);
-      migrateLegacyPreferences(storedPreferences, legacyPreferences);
     };
 
     const handleLoadError = (error: unknown) => {
@@ -181,7 +104,7 @@ export function useUiPreferences() {
     return () => {
       cancelled = true;
     };
-  }, [legacyPreferences]);
+  }, []);
 
   const setHideExportRow = useCallback(
     (value: boolean) => updatePreference(setPreferences, 'hideExportRow', value, preferencesLoaded),
