@@ -1,13 +1,16 @@
 import {
   assertActiveBoard,
   assertEditorInstancePreserved,
+  assertBoardHidden,
   assertSidebarCollapsed,
   assertExportRowHidden,
   closeSettings,
   closeSettingsWithEscape,
+  clearBoardFilter,
   createBoard,
   createBoardFromCommandPalette,
   duplicateBoard,
+  filterBoards,
   openBoardFromCommandPalette,
   openSettings,
   openSettingsFromCommandPalette,
@@ -56,6 +59,21 @@ describe('System suite', () => {
     await rememberEditorInstance();
     await renameBoard(boardName, renamedName);
     await assertEditorInstancePreserved();
+  });
+
+  it('sidebar search: filters board names case-insensitively and clears the filter', async () => {
+    const matchingBoard = uniqueBoardName('Search Match');
+    const otherBoard = uniqueBoardName('Search Other');
+
+    await createBoard(matchingBoard);
+    await createBoard(otherBoard);
+    await filterBoards(matchingBoard.toUpperCase());
+
+    await waitForBoardVisible(matchingBoard);
+    await assertBoardHidden(otherBoard);
+
+    await clearBoardFilter();
+    await waitForBoardVisible(otherBoard);
   });
 
   it('persistence: keeps created boards after app restart', async () => {

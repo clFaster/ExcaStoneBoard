@@ -20,11 +20,13 @@ import {
   faFileImage,
   faGear,
   faGripVertical,
+  faMagnifyingGlass,
   faPen,
   faPlus,
   faStar,
   faTrash,
   faUpload,
+  faXmark,
 } from '@fortawesome/free-solid-svg-icons';
 import {
   DndContext,
@@ -319,6 +321,7 @@ function DraggableBoardItem({
 interface DraggableFolderItemProps {
   folder: BoardFolder;
   isCollapsed: boolean;
+  collapseDisabled?: boolean;
   isEditing: boolean;
   editName: string;
   onEditNameChange: (name: string) => void;
@@ -335,6 +338,7 @@ interface DraggableFolderItemProps {
 function DraggableFolderItem({
   folder,
   isCollapsed,
+  collapseDisabled,
   isEditing,
   editName,
   onEditNameChange,
@@ -411,7 +415,15 @@ function DraggableFolderItem({
             className={`folder-toggle ${isCollapsed ? 'collapsed' : ''}`}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={handleToggleClick}
-            aria-label={isCollapsed ? 'Expand folder' : 'Collapse folder'}
+            disabled={collapseDisabled}
+            aria-label={
+              collapseDisabled
+                ? 'Folders stay expanded while filtering'
+                : isCollapsed
+                  ? 'Expand folder'
+                  : 'Collapse folder'
+            }
+            title={collapseDisabled ? 'Folders stay expanded while filtering' : undefined}
           >
             <FontAwesomeIcon icon={isCollapsed ? faChevronRight : faChevronDown} />
           </button>
@@ -514,6 +526,7 @@ export function BoardList({
   // State
   // ---------------------------------------------------------------------------
   const [newBoardName, setNewBoardName] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
@@ -571,6 +584,44 @@ export function BoardList({
   const existingBoardIds = useMemo(
     () => new Set(flattenedBoards.map((entry) => entry.board.id)),
     [flattenedBoards],
+  );
+
+  const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
+  const isFiltering = normalizedSearchQuery.length > 0;
+
+  const filteredItems = useMemo<BoardListItem[]>(() => {
+    if (!normalizedSearchQuery) return items;
+
+    return items.reduce<BoardListItem[]>((matches, item) => {
+      if (item.type === 'board') {
+        if (item.name.toLocaleLowerCase().includes(normalizedSearchQuery)) {
+          matches.push(item);
+        }
+        return matches;
+      }
+
+      if (item.name.toLocaleLowerCase().includes(normalizedSearchQuery)) {
+        matches.push(item);
+        return matches;
+      }
+
+      const matchingBoards = item.items.filter((board) =>
+        board.name.toLocaleLowerCase().includes(normalizedSearchQuery),
+      );
+      if (matchingBoards.length > 0) {
+        matches.push({ ...item, items: matchingBoards });
+      }
+      return matches;
+    }, []);
+  }, [items, normalizedSearchQuery]);
+
+  const filteredBoardCount = useMemo(
+    () =>
+      filteredItems.reduce(
+        (count, item) => count + (item.type === 'folder' ? item.items.length : 1),
+        0,
+      ),
+    [filteredItems],
   );
 
   const duplicateImportIds = useMemo(() => {
@@ -925,7 +976,7 @@ export function BoardList({
     });
   };
 
-  const dragDisabled = Boolean(activeMenu || editingId || editingFolderId);
+  const dragDisabled = Boolean(activeMenu || editingId || editingFolderId || isFiltering);
 
   // ---------------------------------------------------------------------------
   // Thumbnail Hover Handlers
@@ -1281,14 +1332,52 @@ export function BoardList({
           </button>
         </form>
 
+        <div className="board-search" role="search">
+          <FontAwesomeIcon className="board-search-icon" icon={faMagnifyingGlass} />
+          <input
+            type="search"
+            data-testid="board-search-input"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Filter boards..."
+            aria-label="Filter boards"
+            className="board-search-input"
+          />
+          {isFiltering ? (
+            <button
+              type="button"
+              className="board-search-clear"
+              data-testid="board-search-clear"
+              onClick={() => setSearchQuery('')}
+              aria-label="Clear board filter"
+              title="Clear filter"
+            >
+              <FontAwesomeIcon icon={faXmark} />
+            </button>
+          ) : null}
+          <span className="board-search-status" aria-live="polite">
+            {isFiltering
+              ? `${filteredBoardCount} ${filteredBoardCount === 1 ? 'match' : 'matches'}`
+              : ''}
+          </span>
+        </div>
+
         <div className="boards-scroll" ref={boardsScrollRef}>
           {items.length === 0 ? (
             <div className="no-boards">
               <p>No boards yet</p>
               <p className="hint">Create a new board to get started</p>
             </div>
+          ) : filteredItems.length === 0 ? (
+            <div className="no-boards" data-testid="board-search-empty">
+              <p>No matching boards</p>
+              <p className="hint">Try another board or folder name</p>
+              <button type="button" className="clear-filter-btn" onClick={() => setSearchQuery('')}>
+                Clear filter
+              </button>
+            </div>
           ) : (
-            items.map((item) => {
+            filteredItems.map((item) => {
               if (item.type === 'folder') {
                 const folderId = makeDragId('folder', item.id);
                 const isOverFolder = dragState.overId === folderId;
@@ -1299,7 +1388,8 @@ export function BoardList({
                   <DraggableFolderItem
                     key={item.id}
                     folder={item}
-                    isCollapsed={isFolderCollapsed(item.id)}
+                    isCollapsed={isFiltering ? false : isFolderCollapsed(item.id)}
+                    collapseDisabled={isFiltering}
                     isEditing={editingFolderId === item.id}
                     editName={editFolderName}
                     onEditNameChange={setEditFolderName}

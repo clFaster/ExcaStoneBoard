@@ -1,6 +1,8 @@
 const SELECTORS = {
   createBoardInput: '[data-testid="create-board-input"]',
   createBoardSubmit: '[data-testid="create-board-submit"]',
+  boardSearchInput: '[data-testid="board-search-input"]',
+  boardSearchClear: '[data-testid="board-search-clear"]',
   settingsOpenButton: '[data-testid="open-settings-btn"]',
   settingsModal: '[data-testid="settings-modal"]',
   settingsCloseButton: '[data-testid="close-settings-btn"]',
@@ -66,6 +68,23 @@ export async function createBoard(name) {
 export async function waitForBoardVisible(name) {
   const boardName = await $(boardNameXpath(name));
   await boardName.waitForDisplayed({ timeout: 10000 });
+}
+
+export async function filterBoards(query) {
+  const searchInput = await $(SELECTORS.boardSearchInput);
+  await searchInput.waitForDisplayed({ timeout: 10000 });
+  await searchInput.setValue(query);
+}
+
+export async function clearBoardFilter() {
+  const clearButton = await $(SELECTORS.boardSearchClear);
+  await clearButton.waitForClickable({ timeout: 10000 });
+  await clearButton.click();
+}
+
+export async function assertBoardHidden(name) {
+  const boardName = await $(boardNameXpath(name));
+  await boardName.waitForExist({ reverse: true, timeout: 10000 });
 }
 
 export async function selectBoard(name) {
