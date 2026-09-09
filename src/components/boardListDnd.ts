@@ -128,29 +128,41 @@ export const generateFolderId = (): string =>
 export const cleanupFolders = (nextItems: BoardListItem[]): BoardListItem[] => {
   const seen = new Set<string>();
   const normalized: BoardListItem[] = [];
+  let changed = false;
 
   for (const item of nextItems) {
     if (item.type === 'board') {
       if (!seen.has(item.id)) {
         seen.add(item.id);
         normalized.push(item);
+      } else {
+        changed = true;
       }
       continue;
     }
 
     const remaining = item.items.filter((board) => !seen.has(board.id));
-    if (remaining.length === 0) continue;
+    if (remaining.length === 0) {
+      changed = true;
+      continue;
+    }
 
     remaining.forEach((board) => seen.add(board.id));
     if (remaining.length === 1) {
+      changed = true;
       normalized.push(asBoardListBoard(remaining[0]));
       continue;
     }
 
-    normalized.push({ ...item, items: remaining });
+    if (remaining.length !== item.items.length) {
+      changed = true;
+      normalized.push({ ...item, items: remaining });
+    } else {
+      normalized.push(item);
+    }
   }
 
-  return normalized;
+  return changed ? normalized : nextItems;
 };
 
 export const removeBoardFromItems = (
