@@ -1,0 +1,50 @@
+diff --git a/index.js b/index.js
+index 23384ea16bb848616886f356d8d69f94325535bf..2aac75b895f2b64b9cf914224d8d528d166b96a8 100644
+--- a/index.js
++++ b/index.js
+@@ -50,7 +50,7 @@ class Extractor {
+           return
+         }
+ 
+-        const destDir = path.dirname(path.join(this.opts.dir, entry.fileName))
++        const destDir = path.dirname(this.getDestinationPath(entry.fileName))
+ 
+         try {
+           await fs.mkdir(destDir, { recursive: true })
+@@ -85,7 +85,7 @@ class Extractor {
+       this.opts.onEntry(entry, this.zipfile)
+     }
+ 
+-    const dest = path.join(this.opts.dir, entry.fileName)
++    const dest = this.getDestinationPath(entry.fileName)
+ 
+     // convert external file attr int into a fs stat mode int
+     const mode = (entry.externalFileAttributes >> 16) & 0xFFFF
+@@ -126,10 +126,26 @@ class Extractor {
+ 
+     if (symlink) {
+       const link = await getStream(readStream)
++      this.assertPathContained(path.resolve(path.dirname(dest), link), entry.fileName)
+       debug('creating symlink', link, dest)
+       await fs.symlink(link, dest)
+     } else {
+-      await pipeline(readStream, createWriteStream(dest, { mode: procMode }))
++      // Refuse to follow an entry that was previously created as a symlink.
++      // This also closes the race between checking the destination and opening it.
++      await pipeline(readStream, createWriteStream(dest, { mode: procMode, flags: 'wx' }))
++    }
++  }
++
++  getDestinationPath (entryName) {
++    const dest = path.resolve(this.opts.dir, entryName)
++    this.assertPathContained(dest, entryName)
++    return dest
++  }
++
++  assertPathContained (candidate, entryName) {
++    const relative = path.relative(this.opts.dir, candidate)
++    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
++      throw new Error(`Out of bound path "${candidate}" found while processing file ${entryName}`)
+     }
+   }
+ 

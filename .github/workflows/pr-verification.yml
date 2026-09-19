@@ -6,6 +6,12 @@ on:
     branches:
       - main
 
+# This workflow only reads repository contents. Artifact and cache actions use
+# their dedicated runtime tokens and do not require additional GITHUB_TOKEN
+# permissions.
+permissions:
+  contents: read
+
 jobs:
   checks:
     runs-on: windows-2022

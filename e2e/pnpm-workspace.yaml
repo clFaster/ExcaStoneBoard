@@ -12,3 +12,9 @@ allowBuilds:
   geckodriver: false
 onlyBuiltDependencies:
   - esbuild
+# Mocha 10 still pins a vulnerable serialize-javascript major.
+overrides:
+  serialize-javascript@<7.0.5: 7.0.5
+# No fixed extract-zip release exists, so keep the mitigation reproducible.
+patchedDependencies:
+  extract-zip@2.0.1: patches/extract-zip@2.0.1.patch
