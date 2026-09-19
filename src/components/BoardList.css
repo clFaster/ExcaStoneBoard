@@ -69,6 +69,16 @@
   color: var(--text-primary);
 }
 
+.icon-btn.active {
+  background: var(--accent-primary-subtle);
+  color: var(--accent-primary);
+}
+
+.icon-btn.active:hover {
+  background: var(--accent-primary-subtle);
+  color: var(--accent-primary);
+}
+
 .toggle-btn:hover {
   background: var(--bg-active);
   color: var(--text-primary);
@@ -215,6 +225,18 @@
   display: flex;
   align-items: center;
   margin: var(--space-3) var(--space-4) var(--space-2);
+  animation: board-search-fade-in 0.15s ease;
+}
+
+@keyframes board-search-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .board-search-icon {

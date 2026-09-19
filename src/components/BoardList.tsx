@@ -527,6 +527,7 @@ export function BoardList({
   // ---------------------------------------------------------------------------
   const [newBoardName, setNewBoardName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
@@ -565,6 +566,7 @@ export function BoardList({
 
   const boardsScrollRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   // ---------------------------------------------------------------------------
   // Memoized Data
@@ -647,6 +649,12 @@ export function BoardList({
   // ---------------------------------------------------------------------------
   // Effects
   // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (isSearchOpen) {
+      searchInputRef.current?.focus();
+    }
+  }, [isSearchOpen]);
+
   useEffect(() => {
     if (!activeMenu) return;
     const handleClick = (event: MouseEvent) => {
@@ -779,6 +787,24 @@ export function BoardList({
     if (newBoardName.trim()) {
       onCreateBoard(newBoardName.trim());
       setNewBoardName('');
+    }
+  };
+
+  const handleToggleSearch = () => {
+    setIsSearchOpen((prev) => {
+      const next = !prev;
+      if (!next) {
+        setSearchQuery('');
+      }
+      return next;
+    });
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setIsSearchOpen(false);
+      setSearchQuery('');
     }
   };
 
@@ -1265,6 +1291,15 @@ export function BoardList({
           <h2>Boards</h2>
           <div className="board-header-actions">
             <button
+              className={`icon-btn ${isSearchOpen ? 'active' : ''}`}
+              data-testid="toggle-search-btn"
+              onClick={handleToggleSearch}
+              title={isSearchOpen ? 'Hide search' : 'Search boards'}
+              aria-pressed={isSearchOpen}
+            >
+              <FontAwesomeIcon icon={faMagnifyingGlass} />
+            </button>
+            <button
               className="icon-btn"
               data-testid="open-settings-btn"
               onClick={openSettings}
@@ -1332,35 +1367,39 @@ export function BoardList({
           </button>
         </form>
 
-        <div className="board-search" role="search">
-          <FontAwesomeIcon className="board-search-icon" icon={faMagnifyingGlass} />
-          <input
-            type="search"
-            data-testid="board-search-input"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Filter boards..."
-            aria-label="Filter boards"
-            className="board-search-input"
-          />
-          {isFiltering ? (
-            <button
-              type="button"
-              className="board-search-clear"
-              data-testid="board-search-clear"
-              onClick={() => setSearchQuery('')}
-              aria-label="Clear board filter"
-              title="Clear filter"
-            >
-              <FontAwesomeIcon icon={faXmark} />
-            </button>
-          ) : null}
-          <span className="board-search-status" aria-live="polite">
-            {isFiltering
-              ? `${filteredBoardCount} ${filteredBoardCount === 1 ? 'match' : 'matches'}`
-              : ''}
-          </span>
-        </div>
+        {isSearchOpen && (
+          <div className="board-search" role="search">
+            <FontAwesomeIcon className="board-search-icon" icon={faMagnifyingGlass} />
+            <input
+              ref={searchInputRef}
+              type="search"
+              data-testid="board-search-input"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              onKeyDown={handleSearchKeyDown}
+              placeholder="Filter boards..."
+              aria-label="Filter boards"
+              className="board-search-input"
+            />
+            {isFiltering ? (
+              <button
+                type="button"
+                className="board-search-clear"
+                data-testid="board-search-clear"
+                onClick={() => setSearchQuery('')}
+                aria-label="Clear board filter"
+                title="Clear filter"
+              >
+                <FontAwesomeIcon icon={faXmark} />
+              </button>
+            ) : null}
+            <span className="board-search-status" aria-live="polite">
+              {isFiltering
+                ? `${filteredBoardCount} ${filteredBoardCount === 1 ? 'match' : 'matches'}`
+                : ''}
+            </span>
+          </div>
+        )}
 
         <div className="boards-scroll" ref={boardsScrollRef}>
           {items.length === 0 ? (

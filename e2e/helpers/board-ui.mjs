@@ -3,6 +3,7 @@ const SELECTORS = {
   createBoardSubmit: '[data-testid="create-board-submit"]',
   boardSearchInput: '[data-testid="board-search-input"]',
   boardSearchClear: '[data-testid="board-search-clear"]',
+  toggleSearchButton: '[data-testid="toggle-search-btn"]',
   settingsOpenButton: '[data-testid="open-settings-btn"]',
   settingsModal: '[data-testid="settings-modal"]',
   settingsCloseButton: '[data-testid="close-settings-btn"]',
@@ -70,7 +71,21 @@ export async function waitForBoardVisible(name) {
   await boardName.waitForDisplayed({ timeout: 10000 });
 }
 
+export async function openBoardSearch() {
+  const searchInput = await $(SELECTORS.boardSearchInput);
+  if (await searchInput.isDisplayed().catch(() => false)) {
+    return;
+  }
+
+  const toggleButton = await $(SELECTORS.toggleSearchButton);
+  await toggleButton.waitForClickable({ timeout: 10000 });
+  await toggleButton.click();
+  await searchInput.waitForDisplayed({ timeout: 10000 });
+}
+
 export async function filterBoards(query) {
+  await openBoardSearch();
+
   const searchInput = await $(SELECTORS.boardSearchInput);
   await searchInput.waitForDisplayed({ timeout: 10000 });
   await searchInput.setValue(query);
