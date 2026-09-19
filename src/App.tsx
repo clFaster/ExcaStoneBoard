@@ -255,6 +255,14 @@ const createBoardCommandGroupCommands = (
   }),
 ];
 
+const createSearchBoardsCommand = (requestOpenBoardSearch: () => void): CommandPaletteItem => ({
+  id: 'search-boards',
+  label: 'Search boards',
+  description: 'Open and focus the sidebar board filter',
+  keywords: 'search boards filter find sidebar',
+  action: requestOpenBoardSearch,
+});
+
 const createCommandPaletteCommands = ({
   activeBoardId,
   boardDataLoading,
@@ -307,13 +315,7 @@ const createCommandPaletteCommands = ({
       action: createCreateBoardAction(createBoard),
     },
     ...createBoardCommandGroupCommands(hasBoards, boardSearchEmptyState, boardCommands),
-    {
-      id: 'search-boards',
-      label: 'Search boards',
-      description: 'Open and focus the sidebar board filter',
-      keywords: 'search boards filter find sidebar',
-      action: requestOpenBoardSearch,
-    },
+    createSearchBoardsCommand(requestOpenBoardSearch),
     {
       id: 'export-boards',
       label: 'Export boards',

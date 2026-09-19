@@ -102,10 +102,17 @@ interface DragState {
   dropPosition: DropPosition | null;
 }
 
+interface ThumbnailPreviewState {
+  boardId: string;
+  anchorRect: DOMRect;
+}
+
 interface ImportBoardEntry extends BoardsExportEntry {
   key: string;
   index: number;
 }
+
+type FlattenedBoard = { board: Board; folderId?: string };
 
 // =============================================================================
 // Utility Functions
@@ -187,6 +194,111 @@ const buildImportBoards = (payload: Partial<BoardsExportFile>): ImportBoardEntry
     });
     return acc;
   }, []);
+};
+
+const filterBoardItems = (items: BoardListItem[], normalizedQuery: string): BoardListItem[] => {
+  if (!normalizedQuery) return items;
+
+  return items.reduce<BoardListItem[]>((matches, item) => {
+    if (item.type === 'board') {
+      if (item.name.toLocaleLowerCase().includes(normalizedQuery)) matches.push(item);
+      return matches;
+    }
+
+    if (item.name.toLocaleLowerCase().includes(normalizedQuery)) {
+      matches.push(item);
+      return matches;
+    }
+
+    const matchingBoards = item.items.filter((board) =>
+      board.name.toLocaleLowerCase().includes(normalizedQuery),
+    );
+    if (matchingBoards.length > 0) matches.push({ ...item, items: matchingBoards });
+    return matches;
+  }, []);
+};
+
+const countBoards = (items: BoardListItem[]) =>
+  items.reduce((count, item) => count + (item.type === 'folder' ? item.items.length : 1), 0);
+
+const shouldDisableDrag = (
+  menuOpen: boolean,
+  editingBoard: boolean,
+  editingFolder: boolean,
+  isFiltering: boolean,
+) => menuOpen || editingBoard || editingFolder || isFiltering;
+
+const shouldCollapseFolder = (isFiltering: boolean, isCollapsed: boolean) =>
+  !isFiltering && isCollapsed;
+
+const getDragPointerY = (event: DragMoveEvent) => {
+  const activatorEvent = event.activatorEvent as PointerEvent | MouseEvent | TouchEvent;
+  let initialY = 0;
+  if ('clientY' in activatorEvent) {
+    initialY = activatorEvent.clientY;
+  } else if ('touches' in activatorEvent && activatorEvent.touches.length > 0) {
+    initialY = activatorEvent.touches[0].clientY;
+  }
+  return initialY + (event.delta?.y ?? 0);
+};
+
+const useBoardSearch = (items: BoardListItem[], sidebarCollapsed: boolean) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
+  const isFiltering = normalizedSearchQuery.length > 0;
+  const filteredItems = useMemo(
+    () => filterBoardItems(items, normalizedSearchQuery),
+    [items, normalizedSearchQuery],
+  );
+  const filteredBoardCount = useMemo(() => countBoards(filteredItems), [filteredItems]);
+
+  const clearSearch = useCallback(() => setSearchQuery(''), []);
+  const closeSearch = useCallback(() => {
+    setIsSearchOpen(false);
+    clearSearch();
+  }, [clearSearch]);
+  const toggleSearch = useCallback(() => {
+    setIsSearchOpen((open) => {
+      if (open) clearSearch();
+      return !open;
+    });
+  }, [clearSearch]);
+  const handleSearchKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      closeSearch();
+    },
+    [closeSearch],
+  );
+
+  useEffect(() => {
+    if (isSearchOpen && !sidebarCollapsed) searchInputRef.current?.focus();
+  }, [isSearchOpen, sidebarCollapsed]);
+
+  useEffect(() => {
+    const openSearch = () => {
+      searchInputRef.current?.focus();
+      setIsSearchOpen(true);
+    };
+    window.addEventListener('boardlist:open-search', openSearch);
+    return () => window.removeEventListener('boardlist:open-search', openSearch);
+  }, []);
+
+  return {
+    clearSearch,
+    filteredBoardCount,
+    filteredItems,
+    handleSearchKeyDown,
+    isFiltering,
+    isSearchOpen,
+    searchInputRef,
+    searchQuery,
+    setSearchQuery,
+    toggleSearch,
+  };
 };
 
 // =============================================================================
@@ -335,6 +447,39 @@ interface DraggableFolderItemProps {
   children: React.ReactNode;
 }
 
+interface FolderCollapseToggleProps {
+  collapseDisabled?: boolean;
+  isCollapsed: boolean;
+  onToggle: (event: React.MouseEvent<HTMLButtonElement>) => void;
+}
+
+function FolderCollapseToggle({
+  collapseDisabled,
+  isCollapsed,
+  onToggle,
+}: FolderCollapseToggleProps) {
+  const disabledLabel = 'Folders stay expanded while filtering';
+  const label = collapseDisabled
+    ? disabledLabel
+    : isCollapsed
+      ? 'Expand folder'
+      : 'Collapse folder';
+
+  return (
+    <button
+      type="button"
+      className={`folder-toggle ${isCollapsed ? 'collapsed' : ''}`}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={onToggle}
+      disabled={collapseDisabled}
+      aria-label={label}
+      title={collapseDisabled ? disabledLabel : undefined}
+    >
+      <FontAwesomeIcon icon={isCollapsed ? faChevronRight : faChevronDown} />
+    </button>
+  );
+}
+
 function DraggableFolderItem({
   folder,
   isCollapsed,
@@ -410,23 +555,11 @@ function DraggableFolderItem({
         </div>
       ) : (
         <div className="board-folder-header" {...attributes} {...listeners}>
-          <button
-            type="button"
-            className={`folder-toggle ${isCollapsed ? 'collapsed' : ''}`}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={handleToggleClick}
-            disabled={collapseDisabled}
-            aria-label={
-              collapseDisabled
-                ? 'Folders stay expanded while filtering'
-                : isCollapsed
-                  ? 'Expand folder'
-                  : 'Collapse folder'
-            }
-            title={collapseDisabled ? 'Folders stay expanded while filtering' : undefined}
-          >
-            <FontAwesomeIcon icon={isCollapsed ? faChevronRight : faChevronDown} />
-          </button>
+          <FolderCollapseToggle
+            collapseDisabled={collapseDisabled}
+            isCollapsed={isCollapsed}
+            onToggle={handleToggleClick}
+          />
           <span className="drag-handle" aria-hidden="true">
             <FontAwesomeIcon icon={faGripVertical} />
           </span>
@@ -493,6 +626,499 @@ function FolderOverlay({ folder }: FolderOverlayProps) {
   );
 }
 
+interface BoardSearchToggleProps {
+  isOpen: boolean;
+  onToggle: () => void;
+}
+
+function BoardSearchToggle({ isOpen, onToggle }: BoardSearchToggleProps) {
+  const label = isOpen ? 'Hide search' : 'Search boards';
+
+  return (
+    <button
+      className={`icon-btn ${isOpen ? 'active' : ''}`}
+      data-testid="toggle-search-btn"
+      onClick={onToggle}
+      title={label}
+      aria-label={label}
+      aria-pressed={isOpen}
+    >
+      <FontAwesomeIcon icon={faMagnifyingGlass} />
+    </button>
+  );
+}
+
+interface BoardSearchProps {
+  count: number;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  isFiltering: boolean;
+  isOpen: boolean;
+  onChange: (query: string) => void;
+  onClear: () => void;
+  onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => void;
+  query: string;
+}
+
+function BoardSearch({
+  count,
+  inputRef,
+  isFiltering,
+  isOpen,
+  onChange,
+  onClear,
+  onKeyDown,
+  query,
+}: BoardSearchProps) {
+  if (!isOpen) return null;
+  const status = isFiltering ? `${count} ${count === 1 ? 'match' : 'matches'}` : '';
+
+  return (
+    <div className="board-search" role="search">
+      <FontAwesomeIcon className="board-search-icon" icon={faMagnifyingGlass} />
+      <input
+        ref={inputRef}
+        type="search"
+        data-testid="board-search-input"
+        value={query}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={onKeyDown}
+        placeholder="Filter boards..."
+        aria-label="Filter boards"
+        className="board-search-input"
+      />
+      {isFiltering && (
+        <button
+          type="button"
+          className="board-search-clear"
+          data-testid="board-search-clear"
+          onClick={onClear}
+          aria-label="Clear board filter"
+          title="Clear filter"
+        >
+          <FontAwesomeIcon icon={faXmark} />
+        </button>
+      )}
+      <span className="board-search-status" aria-live="polite">
+        {status}
+      </span>
+    </div>
+  );
+}
+
+interface BoardListEmptyStateProps {
+  hasBoards: boolean;
+  hasMatches: boolean;
+  onClearFilter: () => void;
+}
+
+function BoardListEmptyState({ hasBoards, hasMatches, onClearFilter }: BoardListEmptyStateProps) {
+  if (!hasBoards) {
+    return (
+      <div className="no-boards">
+        <p>No boards yet</p>
+        <p className="hint">Create a new board to get started</p>
+      </div>
+    );
+  }
+
+  if (hasMatches) return null;
+  return (
+    <div className="no-boards" data-testid="board-search-empty">
+      <p>No matching boards</p>
+      <p className="hint">Try another board or folder name</p>
+      <button type="button" className="clear-filter-btn" onClick={onClearFilter}>
+        Clear filter
+      </button>
+    </div>
+  );
+}
+
+interface BoardExportActionsProps {
+  disabled: boolean;
+  hidden: boolean;
+  onCopyPng: () => void;
+  onExportPng: () => void;
+  onExportSvg: () => void;
+}
+
+function BoardExportActions({
+  disabled,
+  hidden,
+  onCopyPng,
+  onExportPng,
+  onExportSvg,
+}: BoardExportActionsProps) {
+  if (hidden) return null;
+
+  return (
+    <div className="board-export-actions">
+      <button
+        type="button"
+        className="export-btn"
+        onClick={onExportPng}
+        disabled={disabled}
+        title="Export PNG"
+        aria-label="Export PNG"
+      >
+        <FontAwesomeIcon icon={faFileImage} />
+      </button>
+      <button
+        type="button"
+        className="export-btn"
+        onClick={onCopyPng}
+        disabled={disabled}
+        title="Copy PNG"
+        aria-label="Copy PNG"
+      >
+        <FontAwesomeIcon icon={faCopy} />
+      </button>
+      <button
+        type="button"
+        className="export-btn"
+        onClick={onExportSvg}
+        disabled={disabled}
+        title="Export SVG"
+        aria-label="Export SVG"
+      >
+        <FontAwesomeIcon icon={faFileCode} />
+      </button>
+    </div>
+  );
+}
+
+interface CollapsedBoardListProps {
+  activeBoardId: string | null;
+  boards: FlattenedBoard[];
+  onExpand: () => void;
+  onSelectBoard: (boardId: string) => void;
+}
+
+function CollapsedBoardList({
+  activeBoardId,
+  boards,
+  onExpand,
+  onSelectBoard,
+}: CollapsedBoardListProps) {
+  return (
+    <div className="board-list collapsed">
+      <button className="toggle-btn" onClick={onExpand} title="Expand sidebar">
+        <FontAwesomeIcon icon={faChevronRight} />
+      </button>
+      <div className="collapsed-boards">
+        {boards.map(({ board }) => (
+          <button
+            key={board.id}
+            className={`collapsed-board-btn ${board.id === activeBoardId ? 'active' : ''}`}
+            onClick={() => onSelectBoard(board.id)}
+            title={board.name}
+          >
+            {board.name.charAt(0).toUpperCase()}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const formatAppVersion = (version: string | null) => {
+  if (!version) return 'Loading...';
+  return version === 'Unknown' ? version : `v${version}`;
+};
+
+interface SettingsDialogProps {
+  appVersion: string | null;
+  boardsExporting: boolean;
+  boardsImporting: boolean;
+  hideExportRow: boolean;
+  importDialogOpen: boolean;
+  importError: string | null;
+  isOpen: boolean;
+  onClose: () => void;
+  onExportBoards: () => Promise<void>;
+  onHideExportRowChange: (value: boolean) => void;
+  onOpenImport: () => void;
+  onOpenReleases: () => void;
+  onShowTimestampsChange: (value: boolean) => void;
+  showTimestamps: boolean;
+}
+
+function SettingsDialog({
+  appVersion,
+  boardsExporting,
+  boardsImporting,
+  hideExportRow,
+  importDialogOpen,
+  importError,
+  isOpen,
+  onClose,
+  onExportBoards,
+  onHideExportRowChange,
+  onOpenImport,
+  onOpenReleases,
+  onShowTimestampsChange,
+  showTimestamps,
+}: SettingsDialogProps) {
+  if (!isOpen) return null;
+
+  return createPortal(
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal settings-modal"
+        data-testid="settings-modal"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h3>Settings</h3>
+        <div className="settings-section">
+          <div className="settings-section-title">Boards</div>
+          <div className="settings-actions">
+            <button
+              type="button"
+              className="settings-action-btn"
+              onClick={onExportBoards}
+              disabled={boardsExporting}
+            >
+              <FontAwesomeIcon icon={faDownload} />
+              {boardsExporting ? 'Exporting...' : 'Export boards'}
+            </button>
+            <button
+              type="button"
+              className="settings-action-btn"
+              onClick={onOpenImport}
+              disabled={boardsImporting}
+            >
+              <FontAwesomeIcon icon={faUpload} />
+              {boardsImporting ? 'Importing...' : 'Import boards'}
+            </button>
+          </div>
+        </div>
+        <div className="settings-section">
+          <div className="settings-section-title">Display</div>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              data-testid="toggle-hide-export-row"
+              checked={hideExportRow}
+              onChange={(event) => onHideExportRowChange(event.target.checked)}
+            />
+            <span className="toggle-track" aria-hidden="true"></span>
+            <span className="toggle-text">Hide export/copy buttons</span>
+          </label>
+        </div>
+        {!importDialogOpen && importError && <div className="settings-error">{importError}</div>}
+        <div className="settings-section">
+          <div className="settings-section-title">Sidebar</div>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              data-testid="toggle-show-timestamps"
+              checked={showTimestamps}
+              onChange={(event) => onShowTimestampsChange(event.target.checked)}
+            />
+            <span className="toggle-track" aria-hidden="true"></span>
+            <span className="toggle-text">Show timestamps in sidebar</span>
+          </label>
+        </div>
+        <div className="settings-version-row">
+          <span className="settings-version-label">Version</span>
+          <button type="button" className="settings-version-link" onClick={onOpenReleases}>
+            {formatAppVersion(appVersion)}
+            <FontAwesomeIcon icon={faArrowUpRightFromSquare} />
+          </button>
+        </div>
+        <div className="modal-actions">
+          <button className="cancel-btn" data-testid="close-settings-btn" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+interface ImportDialogProps {
+  boardsImporting: boolean;
+  duplicateImportIds: Set<string>;
+  error: string | null;
+  existingBoardIds: Set<string>;
+  importBoards: ImportBoardEntry[];
+  importSelection: Record<string, boolean>;
+  isOpen: boolean;
+  onClearAll: () => void;
+  onClose: () => void;
+  onConfirm: () => void;
+  onSelectAll: () => void;
+  onToggleSelection: (key: string) => void;
+  selectedCount: number;
+  sourceName: string | null;
+}
+
+function ImportDialog({
+  boardsImporting,
+  duplicateImportIds,
+  error,
+  existingBoardIds,
+  importBoards,
+  importSelection,
+  isOpen,
+  onClearAll,
+  onClose,
+  onConfirm,
+  onSelectAll,
+  onToggleSelection,
+  selectedCount,
+  sourceName,
+}: ImportDialogProps) {
+  if (!isOpen) return null;
+
+  const handleOverlayClick = () => {
+    if (!boardsImporting) onClose();
+  };
+
+  return createPortal(
+    <div className="modal-overlay" onClick={handleOverlayClick}>
+      <div className="modal import-modal" onClick={(event) => event.stopPropagation()}>
+        <h3>Import boards</h3>
+        {sourceName && <p className="modal-hint">Source: {sourceName}</p>}
+        <div className="import-controls">
+          <button
+            type="button"
+            className="import-control-btn"
+            onClick={onSelectAll}
+            disabled={boardsImporting}
+          >
+            Select all
+          </button>
+          <button
+            type="button"
+            className="import-control-btn"
+            onClick={onClearAll}
+            disabled={boardsImporting}
+          >
+            Clear
+          </button>
+        </div>
+        <div className="import-list">
+          {importBoards.map((entry) => {
+            const isSelected = Boolean(importSelection[entry.key]);
+            const hasId = Boolean(entry.id);
+            const isDuplicate =
+              hasId && (existingBoardIds.has(entry.id) || duplicateImportIds.has(entry.id));
+            return (
+              <label
+                key={entry.key}
+                className={`import-item ${isSelected ? 'selected' : ''} ${isDuplicate ? 'duplicate' : ''}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onChange={() => onToggleSelection(entry.key)}
+                  disabled={boardsImporting}
+                />
+                <span className="import-checkmark" aria-hidden="true"></span>
+                <span className="import-item-name">{entry.name}</span>
+                {isDuplicate && <span className="import-item-duplicate">Duplicate</span>}
+              </label>
+            );
+          })}
+        </div>
+        <div className="import-summary">{selectedCount} selected</div>
+        {error && <div className="import-error">{error}</div>}
+        <div className="modal-actions">
+          <button className="cancel-btn" onClick={onClose} disabled={boardsImporting}>
+            Cancel
+          </button>
+          <button
+            className="save-btn"
+            onClick={onConfirm}
+            disabled={boardsImporting || selectedCount === 0}
+          >
+            Import
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+interface BoardDragOverlayProps {
+  activeItem: Board | BoardFolder | null | undefined;
+  formatDate: (date: string) => string;
+  showTimestamps: boolean;
+}
+
+function BoardDragOverlay({ activeItem, formatDate, showTimestamps }: BoardDragOverlayProps) {
+  let content: React.ReactNode = null;
+  if (activeItem) {
+    content =
+      'items' in activeItem ? (
+        <FolderOverlay folder={activeItem} />
+      ) : (
+        <BoardOverlay board={activeItem} formatDate={formatDate} showTimestamps={showTimestamps} />
+      );
+  }
+
+  return (
+    <DragOverlay
+      dropAnimation={{
+        duration: 200,
+        easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)',
+      }}
+    >
+      {content}
+    </DragOverlay>
+  );
+}
+
+interface ThumbnailPreviewPortalProps {
+  preview: ThumbnailPreviewState | null;
+  thumbnails: Record<string, string>;
+}
+
+function ThumbnailPreviewPortal({ preview, thumbnails }: ThumbnailPreviewPortalProps) {
+  if (!preview) return null;
+  const thumbnail = thumbnails[preview.boardId];
+  if (!thumbnail) return null;
+
+  return createPortal(
+    <div
+      className="thumbnail-preview"
+      style={{
+        position: 'fixed',
+        top: preview.anchorRect.top + preview.anchorRect.height / 2,
+        left: preview.anchorRect.right + 12,
+        transform: 'translateY(-50%)',
+      }}
+    >
+      <img src={thumbnail} alt="Board preview" className="thumbnail-preview-img" />
+    </div>,
+    document.body,
+  );
+}
+
+interface ContextMenuPortalProps {
+  activeMenu: boolean;
+  children: React.ReactNode;
+  menuRef: React.RefObject<HTMLDivElement | null>;
+  style: React.CSSProperties;
+}
+
+function ContextMenuPortal({ activeMenu, children, menuRef, style }: ContextMenuPortalProps) {
+  if (!activeMenu || !children) return null;
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      className="board-menu board-menu-portal"
+      style={{ position: 'fixed', ...style }}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
 // =============================================================================
 // Main Component
 // =============================================================================
@@ -526,8 +1152,18 @@ export function BoardList({
   // State
   // ---------------------------------------------------------------------------
   const [newBoardName, setNewBoardName] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const {
+    clearSearch,
+    filteredBoardCount,
+    filteredItems,
+    handleSearchKeyDown,
+    isFiltering,
+    isSearchOpen,
+    searchInputRef,
+    searchQuery,
+    setSearchQuery,
+    toggleSearch,
+  } = useBoardSearch(items, isCollapsed);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
@@ -566,13 +1202,10 @@ export function BoardList({
 
   const boardsScrollRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   // ---------------------------------------------------------------------------
   // Memoized Data
   // ---------------------------------------------------------------------------
-  type FlattenedBoard = { board: Board; folderId?: string };
-
   const flattenedBoards = useMemo<FlattenedBoard[]>(
     () =>
       items.flatMap<FlattenedBoard>((item) =>
@@ -586,44 +1219,6 @@ export function BoardList({
   const existingBoardIds = useMemo(
     () => new Set(flattenedBoards.map((entry) => entry.board.id)),
     [flattenedBoards],
-  );
-
-  const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
-  const isFiltering = normalizedSearchQuery.length > 0;
-
-  const filteredItems = useMemo<BoardListItem[]>(() => {
-    if (!normalizedSearchQuery) return items;
-
-    return items.reduce<BoardListItem[]>((matches, item) => {
-      if (item.type === 'board') {
-        if (item.name.toLocaleLowerCase().includes(normalizedSearchQuery)) {
-          matches.push(item);
-        }
-        return matches;
-      }
-
-      if (item.name.toLocaleLowerCase().includes(normalizedSearchQuery)) {
-        matches.push(item);
-        return matches;
-      }
-
-      const matchingBoards = item.items.filter((board) =>
-        board.name.toLocaleLowerCase().includes(normalizedSearchQuery),
-      );
-      if (matchingBoards.length > 0) {
-        matches.push({ ...item, items: matchingBoards });
-      }
-      return matches;
-    }, []);
-  }, [items, normalizedSearchQuery]);
-
-  const filteredBoardCount = useMemo(
-    () =>
-      filteredItems.reduce(
-        (count, item) => count + (item.type === 'folder' ? item.items.length : 1),
-        0,
-      ),
-    [filteredItems],
   );
 
   const duplicateImportIds = useMemo(() => {
@@ -649,12 +1244,6 @@ export function BoardList({
   // ---------------------------------------------------------------------------
   // Effects
   // ---------------------------------------------------------------------------
-  useEffect(() => {
-    if (isSearchOpen && !isCollapsed) {
-      searchInputRef.current?.focus();
-    }
-  }, [isCollapsed, isSearchOpen]);
-
   useEffect(() => {
     if (!activeMenu) return;
     const handleClick = (event: MouseEvent) => {
@@ -737,18 +1326,6 @@ export function BoardList({
   }, []);
 
   useEffect(() => {
-    const handleOpenSearch = () => {
-      searchInputRef.current?.focus();
-      setIsSearchOpen(true);
-    };
-
-    window.addEventListener('boardlist:open-search', handleOpenSearch);
-    return () => {
-      window.removeEventListener('boardlist:open-search', handleOpenSearch);
-    };
-  }, []);
-
-  useEffect(() => {
     const handleOpenSettings = () => {
       setSettingsOpen(true);
     };
@@ -799,24 +1376,6 @@ export function BoardList({
     if (newBoardName.trim()) {
       onCreateBoard(newBoardName.trim());
       setNewBoardName('');
-    }
-  };
-
-  const handleToggleSearch = () => {
-    setIsSearchOpen((prev) => {
-      const next = !prev;
-      if (!next) {
-        setSearchQuery('');
-      }
-      return next;
-    });
-  };
-
-  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      setIsSearchOpen(false);
-      setSearchQuery('');
     }
   };
 
@@ -1014,16 +1573,18 @@ export function BoardList({
     });
   };
 
-  const dragDisabled = Boolean(activeMenu || editingId || editingFolderId || isFiltering);
+  const dragDisabled = shouldDisableDrag(
+    Boolean(activeMenu),
+    Boolean(editingId),
+    Boolean(editingFolderId),
+    isFiltering,
+  );
 
   // ---------------------------------------------------------------------------
   // Thumbnail Hover Handlers
   // ---------------------------------------------------------------------------
   const hoverTimerRef = useRef<number | null>(null);
-  const [thumbnailPreview, setThumbnailPreview] = useState<{
-    boardId: string;
-    anchorRect: DOMRect;
-  } | null>(null);
+  const [thumbnailPreview, setThumbnailPreview] = useState<ThumbnailPreviewState | null>(null);
 
   const handleBoardMouseEnter = useCallback(
     (boardId: string, event: React.MouseEvent<HTMLDivElement>) => {
@@ -1104,16 +1665,7 @@ export function BoardList({
 
   const handleDragMove = (event: DragMoveEvent) => {
     const { active, over } = event;
-
-    // Get pointer position from activator event + delta
-    const activatorEvent = event.activatorEvent as PointerEvent | MouseEvent | TouchEvent;
-    let initialY = 0;
-    if ('clientY' in activatorEvent) {
-      initialY = activatorEvent.clientY;
-    } else if ('touches' in activatorEvent && activatorEvent.touches.length > 0) {
-      initialY = activatorEvent.touches[0].clientY;
-    }
-    const pointerY = initialY + (event.delta?.y ?? 0);
+    const pointerY = getDragPointerY(event);
 
     if (!over) {
       setDragState((prev) => ({
@@ -1264,23 +1816,12 @@ export function BoardList({
   // ---------------------------------------------------------------------------
   if (isCollapsed) {
     return (
-      <div className="board-list collapsed">
-        <button className="toggle-btn" onClick={onToggleCollapse} title="Expand sidebar">
-          <FontAwesomeIcon icon={faChevronRight} />
-        </button>
-        <div className="collapsed-boards">
-          {flattenedBoards.map(({ board }) => (
-            <button
-              key={board.id}
-              className={`collapsed-board-btn ${board.id === activeBoardId ? 'active' : ''}`}
-              onClick={() => onSelectBoard(board.id)}
-              title={board.name}
-            >
-              {board.name.charAt(0).toUpperCase()}
-            </button>
-          ))}
-        </div>
-      </div>
+      <CollapsedBoardList
+        activeBoardId={activeBoardId}
+        boards={flattenedBoards}
+        onExpand={onToggleCollapse}
+        onSelectBoard={onSelectBoard}
+      />
     );
   }
 
@@ -1302,15 +1843,7 @@ export function BoardList({
         <div className="board-list-header">
           <h2>Boards</h2>
           <div className="board-header-actions">
-            <button
-              className={`icon-btn ${isSearchOpen ? 'active' : ''}`}
-              data-testid="toggle-search-btn"
-              onClick={handleToggleSearch}
-              title={isSearchOpen ? 'Hide search' : 'Search boards'}
-              aria-pressed={isSearchOpen}
-            >
-              <FontAwesomeIcon icon={faMagnifyingGlass} />
-            </button>
+            <BoardSearchToggle isOpen={isSearchOpen} onToggle={toggleSearch} />
             <button
               className="icon-btn"
               data-testid="open-settings-btn"
@@ -1325,40 +1858,13 @@ export function BoardList({
           </div>
         </div>
 
-        {!hideExportRow && (
-          <div className="board-export-actions">
-            <button
-              type="button"
-              className="export-btn"
-              onClick={onExportPng}
-              disabled={exportDisabled}
-              title="Export PNG"
-              aria-label="Export PNG"
-            >
-              <FontAwesomeIcon icon={faFileImage} />
-            </button>
-            <button
-              type="button"
-              className="export-btn"
-              onClick={onCopyPng}
-              disabled={exportDisabled}
-              title="Copy PNG"
-              aria-label="Copy PNG"
-            >
-              <FontAwesomeIcon icon={faCopy} />
-            </button>
-            <button
-              type="button"
-              className="export-btn"
-              onClick={onExportSvg}
-              disabled={exportDisabled}
-              title="Export SVG"
-              aria-label="Export SVG"
-            >
-              <FontAwesomeIcon icon={faFileCode} />
-            </button>
-          </div>
-        )}
+        <BoardExportActions
+          disabled={exportDisabled}
+          hidden={hideExportRow}
+          onCopyPng={onCopyPng}
+          onExportPng={onExportPng}
+          onExportSvg={onExportSvg}
+        />
 
         <form className="new-board-form" onSubmit={handleCreateBoard}>
           <input
@@ -1379,139 +1885,106 @@ export function BoardList({
           </button>
         </form>
 
-        {isSearchOpen && (
-          <div className="board-search" role="search">
-            <FontAwesomeIcon className="board-search-icon" icon={faMagnifyingGlass} />
-            <input
-              ref={searchInputRef}
-              type="search"
-              data-testid="board-search-input"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              onKeyDown={handleSearchKeyDown}
-              placeholder="Filter boards..."
-              aria-label="Filter boards"
-              className="board-search-input"
-            />
-            {isFiltering ? (
-              <button
-                type="button"
-                className="board-search-clear"
-                data-testid="board-search-clear"
-                onClick={() => setSearchQuery('')}
-                aria-label="Clear board filter"
-                title="Clear filter"
-              >
-                <FontAwesomeIcon icon={faXmark} />
-              </button>
-            ) : null}
-            <span className="board-search-status" aria-live="polite">
-              {isFiltering
-                ? `${filteredBoardCount} ${filteredBoardCount === 1 ? 'match' : 'matches'}`
-                : ''}
-            </span>
-          </div>
-        )}
+        <BoardSearch
+          count={filteredBoardCount}
+          inputRef={searchInputRef}
+          isFiltering={isFiltering}
+          isOpen={isSearchOpen}
+          onChange={setSearchQuery}
+          onClear={clearSearch}
+          onKeyDown={handleSearchKeyDown}
+          query={searchQuery}
+        />
 
         <div className="boards-scroll" ref={boardsScrollRef}>
-          {items.length === 0 ? (
-            <div className="no-boards">
-              <p>No boards yet</p>
-              <p className="hint">Create a new board to get started</p>
-            </div>
-          ) : filteredItems.length === 0 ? (
-            <div className="no-boards" data-testid="board-search-empty">
-              <p>No matching boards</p>
-              <p className="hint">Try another board or folder name</p>
-              <button type="button" className="clear-filter-btn" onClick={() => setSearchQuery('')}>
-                Clear filter
-              </button>
-            </div>
-          ) : (
-            filteredItems.map((item) => {
-              if (item.type === 'folder') {
-                const folderId = makeDragId('folder', item.id);
-                const isOverFolder = dragState.overId === folderId;
-                const folderDropPosition = isOverFolder ? dragState.dropPosition : null;
-                const isFolderDragSource = dragState.activeId === folderId;
-
-                return (
-                  <DraggableFolderItem
-                    key={item.id}
-                    folder={item}
-                    isCollapsed={isFiltering ? false : isFolderCollapsed(item.id)}
-                    collapseDisabled={isFiltering}
-                    isEditing={editingFolderId === item.id}
-                    editName={editFolderName}
-                    onEditNameChange={setEditFolderName}
-                    onSaveEdit={() => handleSaveFolderEdit(item.id)}
-                    onCancelEdit={() => setEditingFolderId(null)}
-                    onToggleCollapse={() => toggleFolderCollapsed(item.id)}
-                    onOpenMenu={(e) => openMenu(e, 'folder', item.id)}
-                    disabled={dragDisabled || editingFolderId === item.id}
-                    dropPosition={folderDropPosition}
-                    isDragSource={isFolderDragSource}
-                  >
-                    {item.items.map((board) => {
-                      const isOverBoard = dragState.overId === board.id;
-                      const boardDropPosition = isOverBoard ? dragState.dropPosition : null;
-                      const isBoardDragSource = dragState.activeId === board.id;
-
-                      return (
-                        <DraggableBoardItem
-                          key={board.id}
-                          board={board}
-                          isActive={board.id === activeBoardId}
-                          isEditing={editingId === board.id}
-                          editName={editName}
-                          onEditNameChange={setEditName}
-                          onSaveEdit={() => handleSaveEdit(board.id)}
-                          onCancelEdit={() => setEditingId(null)}
-                          onSelect={() => onSelectBoard(board.id)}
-                          onOpenMenu={(e) => openMenu(e, 'board', board.id)}
-                          formatDate={formatDate}
-                          showTimestamps={showTimestamps}
-                          disabled={dragDisabled || editingId === board.id}
-                          inFolder
-                          parentFolderId={item.id}
-                          dropPosition={boardDropPosition}
-                          isDragSource={isBoardDragSource}
-                          onMouseEnter={(e) => handleBoardMouseEnter(board.id, e)}
-                          onMouseLeave={handleBoardMouseLeave}
-                        />
-                      );
-                    })}
-                  </DraggableFolderItem>
-                );
-              }
-
-              const isOverBoard = dragState.overId === item.id;
-              const boardDropPosition = isOverBoard ? dragState.dropPosition : null;
-              const isBoardDragSource = dragState.activeId === item.id;
+          <BoardListEmptyState
+            hasBoards={items.length > 0}
+            hasMatches={filteredItems.length > 0}
+            onClearFilter={clearSearch}
+          />
+          {filteredItems.map((item) => {
+            if (item.type === 'folder') {
+              const folderId = makeDragId('folder', item.id);
+              const isOverFolder = dragState.overId === folderId;
+              const folderDropPosition = isOverFolder ? dragState.dropPosition : null;
+              const isFolderDragSource = dragState.activeId === folderId;
 
               return (
-                <DraggableBoardItem
+                <DraggableFolderItem
                   key={item.id}
-                  board={item}
-                  isActive={item.id === activeBoardId}
-                  isEditing={editingId === item.id}
-                  editName={editName}
-                  onEditNameChange={setEditName}
-                  onSaveEdit={() => handleSaveEdit(item.id)}
-                  onCancelEdit={() => setEditingId(null)}
-                  onSelect={() => onSelectBoard(item.id)}
-                  onOpenMenu={(e) => openMenu(e, 'board', item.id)}
-                  formatDate={formatDate}
-                  showTimestamps={showTimestamps}
-                  disabled={dragDisabled || editingId === item.id}
-                  dropPosition={boardDropPosition}
-                  isDragSource={isBoardDragSource}
-                  onMouseEnter={(e) => handleBoardMouseEnter(item.id, e)}
-                  onMouseLeave={handleBoardMouseLeave}
-                />
+                  folder={item}
+                  isCollapsed={shouldCollapseFolder(isFiltering, isFolderCollapsed(item.id))}
+                  collapseDisabled={isFiltering}
+                  isEditing={editingFolderId === item.id}
+                  editName={editFolderName}
+                  onEditNameChange={setEditFolderName}
+                  onSaveEdit={() => handleSaveFolderEdit(item.id)}
+                  onCancelEdit={() => setEditingFolderId(null)}
+                  onToggleCollapse={() => toggleFolderCollapsed(item.id)}
+                  onOpenMenu={(e) => openMenu(e, 'folder', item.id)}
+                  disabled={dragDisabled || editingFolderId === item.id}
+                  dropPosition={folderDropPosition}
+                  isDragSource={isFolderDragSource}
+                >
+                  {item.items.map((board) => {
+                    const isOverBoard = dragState.overId === board.id;
+                    const boardDropPosition = isOverBoard ? dragState.dropPosition : null;
+                    const isBoardDragSource = dragState.activeId === board.id;
+
+                    return (
+                      <DraggableBoardItem
+                        key={board.id}
+                        board={board}
+                        isActive={board.id === activeBoardId}
+                        isEditing={editingId === board.id}
+                        editName={editName}
+                        onEditNameChange={setEditName}
+                        onSaveEdit={() => handleSaveEdit(board.id)}
+                        onCancelEdit={() => setEditingId(null)}
+                        onSelect={() => onSelectBoard(board.id)}
+                        onOpenMenu={(e) => openMenu(e, 'board', board.id)}
+                        formatDate={formatDate}
+                        showTimestamps={showTimestamps}
+                        disabled={dragDisabled || editingId === board.id}
+                        inFolder
+                        parentFolderId={item.id}
+                        dropPosition={boardDropPosition}
+                        isDragSource={isBoardDragSource}
+                        onMouseEnter={(e) => handleBoardMouseEnter(board.id, e)}
+                        onMouseLeave={handleBoardMouseLeave}
+                      />
+                    );
+                  })}
+                </DraggableFolderItem>
               );
-            })
-          )}
+            }
+
+            const isOverBoard = dragState.overId === item.id;
+            const boardDropPosition = isOverBoard ? dragState.dropPosition : null;
+            const isBoardDragSource = dragState.activeId === item.id;
+
+            return (
+              <DraggableBoardItem
+                key={item.id}
+                board={item}
+                isActive={item.id === activeBoardId}
+                isEditing={editingId === item.id}
+                editName={editName}
+                onEditNameChange={setEditName}
+                onSaveEdit={() => handleSaveEdit(item.id)}
+                onCancelEdit={() => setEditingId(null)}
+                onSelect={() => onSelectBoard(item.id)}
+                onOpenMenu={(e) => openMenu(e, 'board', item.id)}
+                formatDate={formatDate}
+                showTimestamps={showTimestamps}
+                disabled={dragDisabled || editingId === item.id}
+                dropPosition={boardDropPosition}
+                isDragSource={isBoardDragSource}
+                onMouseEnter={(e) => handleBoardMouseEnter(item.id, e)}
+                onMouseLeave={handleBoardMouseLeave}
+              />
+            );
+          })}
         </div>
 
         <div className="board-links">
@@ -1541,229 +2014,49 @@ export function BoardList({
         </div>
       </div>
 
-      {settingsOpen
-        ? createPortal(
-            <div className="modal-overlay" onClick={closeSettings}>
-              <div
-                className="modal settings-modal"
-                data-testid="settings-modal"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <h3>Settings</h3>
-                <div className="settings-section">
-                  <div className="settings-section-title">Boards</div>
-                  <div className="settings-actions">
-                    <button
-                      type="button"
-                      className="settings-action-btn"
-                      onClick={onExportBoards}
-                      disabled={boardsExporting}
-                    >
-                      <FontAwesomeIcon icon={faDownload} />
-                      {boardsExporting ? 'Exporting...' : 'Export boards'}
-                    </button>
-                    <button
-                      type="button"
-                      className="settings-action-btn"
-                      onClick={handleOpenImport}
-                      disabled={boardsImporting}
-                    >
-                      <FontAwesomeIcon icon={faUpload} />
-                      {boardsImporting ? 'Importing...' : 'Import boards'}
-                    </button>
-                  </div>
-                </div>
-                <div className="settings-section">
-                  <div className="settings-section-title">Display</div>
-                  <label className="settings-toggle">
-                    <input
-                      type="checkbox"
-                      data-testid="toggle-hide-export-row"
-                      checked={hideExportRow}
-                      onChange={(e) => onHideExportRowChange(e.target.checked)}
-                    />
-                    <span className="toggle-track" aria-hidden="true"></span>
-                    <span className="toggle-text">Hide export/copy buttons</span>
-                  </label>
-                </div>
-                {!importDialogOpen && importError && (
-                  <div className="settings-error">{importError}</div>
-                )}
-                <div className="settings-section">
-                  <div className="settings-section-title">Sidebar</div>
-                  <label className="settings-toggle">
-                    <input
-                      type="checkbox"
-                      data-testid="toggle-show-timestamps"
-                      checked={showTimestamps}
-                      onChange={(e) => onShowTimestampsChange(e.target.checked)}
-                    />
-                    <span className="toggle-track" aria-hidden="true"></span>
-                    <span className="toggle-text">Show timestamps in sidebar</span>
-                  </label>
-                </div>
-                <div className="settings-version-row">
-                  <span className="settings-version-label">Version</span>
-                  <button
-                    type="button"
-                    className="settings-version-link"
-                    onClick={handleOpenReleases}
-                  >
-                    {appVersion
-                      ? appVersion === 'Unknown'
-                        ? 'Unknown'
-                        : `v${appVersion}`
-                      : 'Loading...'}
-                    <FontAwesomeIcon icon={faArrowUpRightFromSquare} />
-                  </button>
-                </div>
-                <div className="modal-actions">
-                  <button
-                    className="cancel-btn"
-                    data-testid="close-settings-btn"
-                    onClick={closeSettings}
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+      <SettingsDialog
+        appVersion={appVersion}
+        boardsExporting={boardsExporting}
+        boardsImporting={boardsImporting}
+        hideExportRow={hideExportRow}
+        importDialogOpen={importDialogOpen}
+        importError={importError}
+        isOpen={settingsOpen}
+        onClose={closeSettings}
+        onExportBoards={onExportBoards}
+        onHideExportRowChange={onHideExportRowChange}
+        onOpenImport={handleOpenImport}
+        onOpenReleases={handleOpenReleases}
+        onShowTimestampsChange={onShowTimestampsChange}
+        showTimestamps={showTimestamps}
+      />
 
-      {importDialogOpen
-        ? createPortal(
-            <div
-              className="modal-overlay"
-              onClick={() => {
-                if (!boardsImporting) closeImportDialog();
-              }}
-            >
-              <div className="modal import-modal" onClick={(event) => event.stopPropagation()}>
-                <h3>Import boards</h3>
-                {importSourceName && <p className="modal-hint">Source: {importSourceName}</p>}
-                <div className="import-controls">
-                  <button
-                    type="button"
-                    className="import-control-btn"
-                    onClick={handleSelectAllImports}
-                    disabled={boardsImporting}
-                  >
-                    Select all
-                  </button>
-                  <button
-                    type="button"
-                    className="import-control-btn"
-                    onClick={handleClearAllImports}
-                    disabled={boardsImporting}
-                  >
-                    Clear
-                  </button>
-                </div>
-                <div className="import-list">
-                  {importBoards.map((entry) => {
-                    const isSelected = Boolean(importSelection[entry.key]);
-                    const hasId = Boolean(entry.id);
-                    const isDuplicate =
-                      hasId && (existingBoardIds.has(entry.id) || duplicateImportIds.has(entry.id));
-                    return (
-                      <label
-                        key={entry.key}
-                        className={`import-item ${isSelected ? 'selected' : ''} ${isDuplicate ? 'duplicate' : ''}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => handleToggleImportSelection(entry.key)}
-                          disabled={boardsImporting}
-                        />
-                        <span className="import-checkmark" aria-hidden="true"></span>
-                        <span className="import-item-name">{entry.name}</span>
-                        {isDuplicate && <span className="import-item-duplicate">Duplicate</span>}
-                      </label>
-                    );
-                  })}
-                </div>
-                <div className="import-summary">{selectedImportBoards.length} selected</div>
-                {importError && <div className="import-error">{importError}</div>}
-                <div className="modal-actions">
-                  <button
-                    className="cancel-btn"
-                    onClick={closeImportDialog}
-                    disabled={boardsImporting}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="save-btn"
-                    onClick={handleConfirmImport}
-                    disabled={boardsImporting || selectedImportBoards.length === 0}
-                  >
-                    Import
-                  </button>
-                </div>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+      <ImportDialog
+        boardsImporting={boardsImporting}
+        duplicateImportIds={duplicateImportIds}
+        error={importError}
+        existingBoardIds={existingBoardIds}
+        importBoards={importBoards}
+        importSelection={importSelection}
+        isOpen={importDialogOpen}
+        onClearAll={handleClearAllImports}
+        onClose={closeImportDialog}
+        onConfirm={handleConfirmImport}
+        onSelectAll={handleSelectAllImports}
+        onToggleSelection={handleToggleImportSelection}
+        selectedCount={selectedImportBoards.length}
+        sourceName={importSourceName}
+      />
 
-      {/* Drag Overlay - shows a preview following the cursor */}
-      <DragOverlay
-        dropAnimation={{
-          duration: 200,
-          easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)',
-        }}
-      >
-        {activeItem ? (
-          'items' in activeItem ? (
-            <FolderOverlay folder={activeItem as BoardFolder} />
-          ) : (
-            <BoardOverlay
-              board={activeItem as Board}
-              formatDate={formatDate}
-              showTimestamps={showTimestamps}
-            />
-          )
-        ) : null}
-      </DragOverlay>
-
-      {/* Thumbnail hover preview portal */}
-      {thumbnailPreview && thumbnails[thumbnailPreview.boardId]
-        ? createPortal(
-            <div
-              className="thumbnail-preview"
-              style={{
-                position: 'fixed',
-                top: thumbnailPreview.anchorRect.top + thumbnailPreview.anchorRect.height / 2,
-                left: thumbnailPreview.anchorRect.right + 12,
-                transform: 'translateY(-50%)',
-              }}
-            >
-              <img
-                src={thumbnails[thumbnailPreview.boardId]}
-                alt="Board preview"
-                className="thumbnail-preview-img"
-              />
-            </div>,
-            document.body,
-          )
-        : null}
-
-      {/* Context menu portal */}
-      {activeMenu && menuContent
-        ? createPortal(
-            <div
-              ref={menuRef}
-              className="board-menu board-menu-portal"
-              style={{ position: 'fixed', ...menuStyle }}
-            >
-              {menuContent}
-            </div>,
-            document.body,
-          )
-        : null}
+      <BoardDragOverlay
+        activeItem={activeItem}
+        formatDate={formatDate}
+        showTimestamps={showTimestamps}
+      />
+      <ThumbnailPreviewPortal preview={thumbnailPreview} thumbnails={thumbnails} />
+      <ContextMenuPortal activeMenu={Boolean(activeMenu)} menuRef={menuRef} style={menuStyle}>
+        {menuContent}
+      </ContextMenuPortal>
     </DndContext>
   );
 }
