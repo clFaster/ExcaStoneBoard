@@ -4,3 +4,8 @@ allowBuilds:
 onlyBuiltDependencies:
   - esbuild
   - skia-canvas
+# Excalidraw's transitive ranges still resolve vulnerable releases.
+overrides:
+  lodash-es@<=4.17.23: 4.18.1
+  nanoid@<3.3.18: 3.3.18
+  nanoid@>=4.0.0 <5.1.16: 5.1.16
