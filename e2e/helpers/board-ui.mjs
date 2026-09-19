@@ -1,6 +1,9 @@
 const SELECTORS = {
   createBoardInput: '[data-testid="create-board-input"]',
   createBoardSubmit: '[data-testid="create-board-submit"]',
+  boardSearchInput: '[data-testid="board-search-input"]',
+  boardSearchClear: '[data-testid="board-search-clear"]',
+  toggleSearchButton: '[data-testid="toggle-search-btn"]',
   settingsOpenButton: '[data-testid="open-settings-btn"]',
   settingsModal: '[data-testid="settings-modal"]',
   settingsCloseButton: '[data-testid="close-settings-btn"]',
@@ -11,6 +14,7 @@ const SELECTORS = {
   commandPaletteInput: '[data-testid="command-palette-input"]',
   commandPaletteCreateBoardItem: '[data-testid="command-palette-item-create-board"]',
   commandPaletteOpenBoardItem: '[data-testid="command-palette-item-open-board"]',
+  commandPaletteSearchBoardsItem: '[data-testid="command-palette-item-search-boards"]',
   commandPaletteOpenSettingsItem: '[data-testid="command-palette-item-open-settings"]',
 };
 
@@ -66,6 +70,37 @@ export async function createBoard(name) {
 export async function waitForBoardVisible(name) {
   const boardName = await $(boardNameXpath(name));
   await boardName.waitForDisplayed({ timeout: 10000 });
+}
+
+export async function openBoardSearch() {
+  const searchInput = await $(SELECTORS.boardSearchInput);
+  if (await searchInput.isDisplayed().catch(() => false)) {
+    return;
+  }
+
+  const toggleButton = await $(SELECTORS.toggleSearchButton);
+  await toggleButton.waitForClickable({ timeout: 10000 });
+  await toggleButton.click();
+  await searchInput.waitForDisplayed({ timeout: 10000 });
+}
+
+export async function filterBoards(query) {
+  await openBoardSearch();
+
+  const searchInput = await $(SELECTORS.boardSearchInput);
+  await searchInput.waitForDisplayed({ timeout: 10000 });
+  await searchInput.setValue(query);
+}
+
+export async function clearBoardFilter() {
+  const clearButton = await $(SELECTORS.boardSearchClear);
+  await clearButton.waitForClickable({ timeout: 10000 });
+  await clearButton.click();
+}
+
+export async function assertBoardHidden(name) {
+  const boardName = await $(boardNameXpath(name));
+  await boardName.waitForExist({ reverse: true, timeout: 10000 });
 }
 
 export async function selectBoard(name) {
@@ -223,6 +258,25 @@ export async function openSettingsFromCommandPalette() {
 
   const settingsModal = await $(SELECTORS.settingsModal);
   await settingsModal.waitForDisplayed({ timeout: 10000 });
+}
+
+export async function openSearchFromCommandPalette() {
+  await openCommandPalette();
+
+  const paletteInput = await $(SELECTORS.commandPaletteInput);
+  await paletteInput.waitForDisplayed({ timeout: 10000 });
+  await paletteInput.setValue('search boards');
+
+  const searchBoardsItem = await $(SELECTORS.commandPaletteSearchBoardsItem);
+  await searchBoardsItem.waitForDisplayed({ timeout: 10000 });
+  await browser.keys('Enter');
+
+  const searchInput = await $(SELECTORS.boardSearchInput);
+  await searchInput.waitForDisplayed({ timeout: 10000 });
+  await browser.waitUntil(async () => searchInput.isFocused(), {
+    timeout: 10000,
+    timeoutMsg: 'Expected the sidebar board search to receive focus.',
+  });
 }
 
 export async function openBoardFromCommandPalette(name) {

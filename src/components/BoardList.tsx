@@ -13,18 +13,13 @@ import {
   faChevronLeft,
   faChevronRight,
   faClone,
-  faCopy,
-  faDownload,
   faEllipsisVertical,
-  faFileCode,
-  faFileImage,
   faGear,
   faGripVertical,
   faPen,
   faPlus,
   faStar,
   faTrash,
-  faUpload,
 } from '@fortawesome/free-solid-svg-icons';
 import {
   DndContext,
@@ -60,6 +55,15 @@ import {
   parseDragId,
   type DropPosition,
 } from './boardListDnd';
+import {
+  BoardExportActions,
+  BoardListEmptyState,
+  BoardSearch,
+  BoardSearchToggle,
+  CollapsedBoardList,
+} from './BoardListSidebar';
+import { ImportDialog, SettingsDialog } from './BoardListDialogs';
+import { useBoardSearch } from '../hooks/useBoardSearch';
 import './BoardList.css';
 
 // =============================================================================
@@ -100,10 +104,17 @@ interface DragState {
   dropPosition: DropPosition | null;
 }
 
+interface ThumbnailPreviewState {
+  boardId: string;
+  anchorRect: DOMRect;
+}
+
 interface ImportBoardEntry extends BoardsExportEntry {
   key: string;
   index: number;
 }
+
+type FlattenedBoard = { board: Board; folderId?: string };
 
 // =============================================================================
 // Utility Functions
@@ -185,6 +196,27 @@ const buildImportBoards = (payload: Partial<BoardsExportFile>): ImportBoardEntry
     });
     return acc;
   }, []);
+};
+
+const shouldDisableDrag = (
+  menuOpen: boolean,
+  editingBoard: boolean,
+  editingFolder: boolean,
+  isFiltering: boolean,
+) => menuOpen || editingBoard || editingFolder || isFiltering;
+
+const shouldCollapseFolder = (isFiltering: boolean, isCollapsed: boolean) =>
+  !isFiltering && isCollapsed;
+
+const getDragPointerY = (event: DragMoveEvent) => {
+  const activatorEvent = event.activatorEvent as PointerEvent | MouseEvent | TouchEvent;
+  let initialY = 0;
+  if ('clientY' in activatorEvent) {
+    initialY = activatorEvent.clientY;
+  } else if ('touches' in activatorEvent && activatorEvent.touches.length > 0) {
+    initialY = activatorEvent.touches[0].clientY;
+  }
+  return initialY + (event.delta?.y ?? 0);
 };
 
 // =============================================================================
@@ -319,6 +351,7 @@ function DraggableBoardItem({
 interface DraggableFolderItemProps {
   folder: BoardFolder;
   isCollapsed: boolean;
+  collapseDisabled?: boolean;
   isEditing: boolean;
   editName: string;
   onEditNameChange: (name: string) => void;
@@ -332,9 +365,43 @@ interface DraggableFolderItemProps {
   children: React.ReactNode;
 }
 
+interface FolderCollapseToggleProps {
+  collapseDisabled?: boolean;
+  isCollapsed: boolean;
+  onToggle: (event: React.MouseEvent<HTMLButtonElement>) => void;
+}
+
+function FolderCollapseToggle({
+  collapseDisabled,
+  isCollapsed,
+  onToggle,
+}: FolderCollapseToggleProps) {
+  const disabledLabel = 'Folders stay expanded while filtering';
+  const label = collapseDisabled
+    ? disabledLabel
+    : isCollapsed
+      ? 'Expand folder'
+      : 'Collapse folder';
+
+  return (
+    <button
+      type="button"
+      className={`folder-toggle ${isCollapsed ? 'collapsed' : ''}`}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={onToggle}
+      disabled={collapseDisabled}
+      aria-label={label}
+      title={collapseDisabled ? disabledLabel : undefined}
+    >
+      <FontAwesomeIcon icon={isCollapsed ? faChevronRight : faChevronDown} />
+    </button>
+  );
+}
+
 function DraggableFolderItem({
   folder,
   isCollapsed,
+  collapseDisabled,
   isEditing,
   editName,
   onEditNameChange,
@@ -406,15 +473,11 @@ function DraggableFolderItem({
         </div>
       ) : (
         <div className="board-folder-header" {...attributes} {...listeners}>
-          <button
-            type="button"
-            className={`folder-toggle ${isCollapsed ? 'collapsed' : ''}`}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={handleToggleClick}
-            aria-label={isCollapsed ? 'Expand folder' : 'Collapse folder'}
-          >
-            <FontAwesomeIcon icon={isCollapsed ? faChevronRight : faChevronDown} />
-          </button>
+          <FolderCollapseToggle
+            collapseDisabled={collapseDisabled}
+            isCollapsed={isCollapsed}
+            onToggle={handleToggleClick}
+          />
           <span className="drag-handle" aria-hidden="true">
             <FontAwesomeIcon icon={faGripVertical} />
           </span>
@@ -481,6 +544,83 @@ function FolderOverlay({ folder }: FolderOverlayProps) {
   );
 }
 
+interface BoardDragOverlayProps {
+  activeItem: Board | BoardFolder | null | undefined;
+  formatDate: (date: string) => string;
+  showTimestamps: boolean;
+}
+
+function BoardDragOverlay({ activeItem, formatDate, showTimestamps }: BoardDragOverlayProps) {
+  let content: React.ReactNode = null;
+  if (activeItem) {
+    content =
+      'items' in activeItem ? (
+        <FolderOverlay folder={activeItem} />
+      ) : (
+        <BoardOverlay board={activeItem} formatDate={formatDate} showTimestamps={showTimestamps} />
+      );
+  }
+
+  return (
+    <DragOverlay
+      dropAnimation={{
+        duration: 200,
+        easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)',
+      }}
+    >
+      {content}
+    </DragOverlay>
+  );
+}
+
+interface ThumbnailPreviewPortalProps {
+  preview: ThumbnailPreviewState | null;
+  thumbnails: Record<string, string>;
+}
+
+function ThumbnailPreviewPortal({ preview, thumbnails }: ThumbnailPreviewPortalProps) {
+  if (!preview) return null;
+  const thumbnail = thumbnails[preview.boardId];
+  if (!thumbnail) return null;
+
+  return createPortal(
+    <div
+      className="thumbnail-preview"
+      style={{
+        position: 'fixed',
+        top: preview.anchorRect.top + preview.anchorRect.height / 2,
+        left: preview.anchorRect.right + 12,
+        transform: 'translateY(-50%)',
+      }}
+    >
+      <img src={thumbnail} alt="Board preview" className="thumbnail-preview-img" />
+    </div>,
+    document.body,
+  );
+}
+
+interface ContextMenuPortalProps {
+  activeMenu: boolean;
+  children: React.ReactNode;
+  menuRef: React.RefObject<HTMLDivElement | null>;
+  style: React.CSSProperties;
+}
+
+function ContextMenuPortal({ activeMenu, children, menuRef, style }: ContextMenuPortalProps) {
+  if (!activeMenu || !children) return null;
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      className="board-menu board-menu-portal"
+      style={{ position: 'fixed', ...style }}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
 // =============================================================================
 // Main Component
 // =============================================================================
@@ -514,6 +654,18 @@ export function BoardList({
   // State
   // ---------------------------------------------------------------------------
   const [newBoardName, setNewBoardName] = useState('');
+  const {
+    clearSearch,
+    filteredBoardCount,
+    filteredItems,
+    handleSearchKeyDown,
+    isFiltering,
+    isSearchOpen,
+    searchInputRef,
+    searchQuery,
+    setSearchQuery,
+    toggleSearch,
+  } = useBoardSearch(items, isCollapsed);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
@@ -556,8 +708,6 @@ export function BoardList({
   // ---------------------------------------------------------------------------
   // Memoized Data
   // ---------------------------------------------------------------------------
-  type FlattenedBoard = { board: Board; folderId?: string };
-
   const flattenedBoards = useMemo<FlattenedBoard[]>(
     () =>
       items.flatMap<FlattenedBoard>((item) =>
@@ -925,16 +1075,18 @@ export function BoardList({
     });
   };
 
-  const dragDisabled = Boolean(activeMenu || editingId || editingFolderId);
+  const dragDisabled = shouldDisableDrag(
+    Boolean(activeMenu),
+    Boolean(editingId),
+    Boolean(editingFolderId),
+    isFiltering,
+  );
 
   // ---------------------------------------------------------------------------
   // Thumbnail Hover Handlers
   // ---------------------------------------------------------------------------
   const hoverTimerRef = useRef<number | null>(null);
-  const [thumbnailPreview, setThumbnailPreview] = useState<{
-    boardId: string;
-    anchorRect: DOMRect;
-  } | null>(null);
+  const [thumbnailPreview, setThumbnailPreview] = useState<ThumbnailPreviewState | null>(null);
 
   const handleBoardMouseEnter = useCallback(
     (boardId: string, event: React.MouseEvent<HTMLDivElement>) => {
@@ -1015,16 +1167,7 @@ export function BoardList({
 
   const handleDragMove = (event: DragMoveEvent) => {
     const { active, over } = event;
-
-    // Get pointer position from activator event + delta
-    const activatorEvent = event.activatorEvent as PointerEvent | MouseEvent | TouchEvent;
-    let initialY = 0;
-    if ('clientY' in activatorEvent) {
-      initialY = activatorEvent.clientY;
-    } else if ('touches' in activatorEvent && activatorEvent.touches.length > 0) {
-      initialY = activatorEvent.touches[0].clientY;
-    }
-    const pointerY = initialY + (event.delta?.y ?? 0);
+    const pointerY = getDragPointerY(event);
 
     if (!over) {
       setDragState((prev) => ({
@@ -1175,23 +1318,12 @@ export function BoardList({
   // ---------------------------------------------------------------------------
   if (isCollapsed) {
     return (
-      <div className="board-list collapsed">
-        <button className="toggle-btn" onClick={onToggleCollapse} title="Expand sidebar">
-          <FontAwesomeIcon icon={faChevronRight} />
-        </button>
-        <div className="collapsed-boards">
-          {flattenedBoards.map(({ board }) => (
-            <button
-              key={board.id}
-              className={`collapsed-board-btn ${board.id === activeBoardId ? 'active' : ''}`}
-              onClick={() => onSelectBoard(board.id)}
-              title={board.name}
-            >
-              {board.name.charAt(0).toUpperCase()}
-            </button>
-          ))}
-        </div>
-      </div>
+      <CollapsedBoardList
+        activeBoardId={activeBoardId}
+        boards={flattenedBoards}
+        onExpand={onToggleCollapse}
+        onSelectBoard={onSelectBoard}
+      />
     );
   }
 
@@ -1213,6 +1345,7 @@ export function BoardList({
         <div className="board-list-header">
           <h2>Boards</h2>
           <div className="board-header-actions">
+            <BoardSearchToggle isOpen={isSearchOpen} onToggle={toggleSearch} />
             <button
               className="icon-btn"
               data-testid="open-settings-btn"
@@ -1227,40 +1360,13 @@ export function BoardList({
           </div>
         </div>
 
-        {!hideExportRow && (
-          <div className="board-export-actions">
-            <button
-              type="button"
-              className="export-btn"
-              onClick={onExportPng}
-              disabled={exportDisabled}
-              title="Export PNG"
-              aria-label="Export PNG"
-            >
-              <FontAwesomeIcon icon={faFileImage} />
-            </button>
-            <button
-              type="button"
-              className="export-btn"
-              onClick={onCopyPng}
-              disabled={exportDisabled}
-              title="Copy PNG"
-              aria-label="Copy PNG"
-            >
-              <FontAwesomeIcon icon={faCopy} />
-            </button>
-            <button
-              type="button"
-              className="export-btn"
-              onClick={onExportSvg}
-              disabled={exportDisabled}
-              title="Export SVG"
-              aria-label="Export SVG"
-            >
-              <FontAwesomeIcon icon={faFileCode} />
-            </button>
-          </div>
-        )}
+        <BoardExportActions
+          disabled={exportDisabled}
+          hidden={hideExportRow}
+          onCopyPng={onCopyPng}
+          onExportPng={onExportPng}
+          onExportSvg={onExportSvg}
+        />
 
         <form className="new-board-form" onSubmit={handleCreateBoard}>
           <input
@@ -1281,96 +1387,106 @@ export function BoardList({
           </button>
         </form>
 
+        <BoardSearch
+          count={filteredBoardCount}
+          inputRef={searchInputRef}
+          isFiltering={isFiltering}
+          isOpen={isSearchOpen}
+          onChange={setSearchQuery}
+          onClear={clearSearch}
+          onKeyDown={handleSearchKeyDown}
+          query={searchQuery}
+        />
+
         <div className="boards-scroll" ref={boardsScrollRef}>
-          {items.length === 0 ? (
-            <div className="no-boards">
-              <p>No boards yet</p>
-              <p className="hint">Create a new board to get started</p>
-            </div>
-          ) : (
-            items.map((item) => {
-              if (item.type === 'folder') {
-                const folderId = makeDragId('folder', item.id);
-                const isOverFolder = dragState.overId === folderId;
-                const folderDropPosition = isOverFolder ? dragState.dropPosition : null;
-                const isFolderDragSource = dragState.activeId === folderId;
-
-                return (
-                  <DraggableFolderItem
-                    key={item.id}
-                    folder={item}
-                    isCollapsed={isFolderCollapsed(item.id)}
-                    isEditing={editingFolderId === item.id}
-                    editName={editFolderName}
-                    onEditNameChange={setEditFolderName}
-                    onSaveEdit={() => handleSaveFolderEdit(item.id)}
-                    onCancelEdit={() => setEditingFolderId(null)}
-                    onToggleCollapse={() => toggleFolderCollapsed(item.id)}
-                    onOpenMenu={(e) => openMenu(e, 'folder', item.id)}
-                    disabled={dragDisabled || editingFolderId === item.id}
-                    dropPosition={folderDropPosition}
-                    isDragSource={isFolderDragSource}
-                  >
-                    {item.items.map((board) => {
-                      const isOverBoard = dragState.overId === board.id;
-                      const boardDropPosition = isOverBoard ? dragState.dropPosition : null;
-                      const isBoardDragSource = dragState.activeId === board.id;
-
-                      return (
-                        <DraggableBoardItem
-                          key={board.id}
-                          board={board}
-                          isActive={board.id === activeBoardId}
-                          isEditing={editingId === board.id}
-                          editName={editName}
-                          onEditNameChange={setEditName}
-                          onSaveEdit={() => handleSaveEdit(board.id)}
-                          onCancelEdit={() => setEditingId(null)}
-                          onSelect={() => onSelectBoard(board.id)}
-                          onOpenMenu={(e) => openMenu(e, 'board', board.id)}
-                          formatDate={formatDate}
-                          showTimestamps={showTimestamps}
-                          disabled={dragDisabled || editingId === board.id}
-                          inFolder
-                          parentFolderId={item.id}
-                          dropPosition={boardDropPosition}
-                          isDragSource={isBoardDragSource}
-                          onMouseEnter={(e) => handleBoardMouseEnter(board.id, e)}
-                          onMouseLeave={handleBoardMouseLeave}
-                        />
-                      );
-                    })}
-                  </DraggableFolderItem>
-                );
-              }
-
-              const isOverBoard = dragState.overId === item.id;
-              const boardDropPosition = isOverBoard ? dragState.dropPosition : null;
-              const isBoardDragSource = dragState.activeId === item.id;
+          <BoardListEmptyState
+            hasBoards={items.length > 0}
+            hasMatches={filteredItems.length > 0}
+            onClearFilter={clearSearch}
+          />
+          {filteredItems.map((item) => {
+            if (item.type === 'folder') {
+              const folderId = makeDragId('folder', item.id);
+              const isOverFolder = dragState.overId === folderId;
+              const folderDropPosition = isOverFolder ? dragState.dropPosition : null;
+              const isFolderDragSource = dragState.activeId === folderId;
 
               return (
-                <DraggableBoardItem
+                <DraggableFolderItem
                   key={item.id}
-                  board={item}
-                  isActive={item.id === activeBoardId}
-                  isEditing={editingId === item.id}
-                  editName={editName}
-                  onEditNameChange={setEditName}
-                  onSaveEdit={() => handleSaveEdit(item.id)}
-                  onCancelEdit={() => setEditingId(null)}
-                  onSelect={() => onSelectBoard(item.id)}
-                  onOpenMenu={(e) => openMenu(e, 'board', item.id)}
-                  formatDate={formatDate}
-                  showTimestamps={showTimestamps}
-                  disabled={dragDisabled || editingId === item.id}
-                  dropPosition={boardDropPosition}
-                  isDragSource={isBoardDragSource}
-                  onMouseEnter={(e) => handleBoardMouseEnter(item.id, e)}
-                  onMouseLeave={handleBoardMouseLeave}
-                />
+                  folder={item}
+                  isCollapsed={shouldCollapseFolder(isFiltering, isFolderCollapsed(item.id))}
+                  collapseDisabled={isFiltering}
+                  isEditing={editingFolderId === item.id}
+                  editName={editFolderName}
+                  onEditNameChange={setEditFolderName}
+                  onSaveEdit={() => handleSaveFolderEdit(item.id)}
+                  onCancelEdit={() => setEditingFolderId(null)}
+                  onToggleCollapse={() => toggleFolderCollapsed(item.id)}
+                  onOpenMenu={(e) => openMenu(e, 'folder', item.id)}
+                  disabled={dragDisabled || editingFolderId === item.id}
+                  dropPosition={folderDropPosition}
+                  isDragSource={isFolderDragSource}
+                >
+                  {item.items.map((board) => {
+                    const isOverBoard = dragState.overId === board.id;
+                    const boardDropPosition = isOverBoard ? dragState.dropPosition : null;
+                    const isBoardDragSource = dragState.activeId === board.id;
+
+                    return (
+                      <DraggableBoardItem
+                        key={board.id}
+                        board={board}
+                        isActive={board.id === activeBoardId}
+                        isEditing={editingId === board.id}
+                        editName={editName}
+                        onEditNameChange={setEditName}
+                        onSaveEdit={() => handleSaveEdit(board.id)}
+                        onCancelEdit={() => setEditingId(null)}
+                        onSelect={() => onSelectBoard(board.id)}
+                        onOpenMenu={(e) => openMenu(e, 'board', board.id)}
+                        formatDate={formatDate}
+                        showTimestamps={showTimestamps}
+                        disabled={dragDisabled || editingId === board.id}
+                        inFolder
+                        parentFolderId={item.id}
+                        dropPosition={boardDropPosition}
+                        isDragSource={isBoardDragSource}
+                        onMouseEnter={(e) => handleBoardMouseEnter(board.id, e)}
+                        onMouseLeave={handleBoardMouseLeave}
+                      />
+                    );
+                  })}
+                </DraggableFolderItem>
               );
-            })
-          )}
+            }
+
+            const isOverBoard = dragState.overId === item.id;
+            const boardDropPosition = isOverBoard ? dragState.dropPosition : null;
+            const isBoardDragSource = dragState.activeId === item.id;
+
+            return (
+              <DraggableBoardItem
+                key={item.id}
+                board={item}
+                isActive={item.id === activeBoardId}
+                isEditing={editingId === item.id}
+                editName={editName}
+                onEditNameChange={setEditName}
+                onSaveEdit={() => handleSaveEdit(item.id)}
+                onCancelEdit={() => setEditingId(null)}
+                onSelect={() => onSelectBoard(item.id)}
+                onOpenMenu={(e) => openMenu(e, 'board', item.id)}
+                formatDate={formatDate}
+                showTimestamps={showTimestamps}
+                disabled={dragDisabled || editingId === item.id}
+                dropPosition={boardDropPosition}
+                isDragSource={isBoardDragSource}
+                onMouseEnter={(e) => handleBoardMouseEnter(item.id, e)}
+                onMouseLeave={handleBoardMouseLeave}
+              />
+            );
+          })}
         </div>
 
         <div className="board-links">
@@ -1400,229 +1516,49 @@ export function BoardList({
         </div>
       </div>
 
-      {settingsOpen
-        ? createPortal(
-            <div className="modal-overlay" onClick={closeSettings}>
-              <div
-                className="modal settings-modal"
-                data-testid="settings-modal"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <h3>Settings</h3>
-                <div className="settings-section">
-                  <div className="settings-section-title">Boards</div>
-                  <div className="settings-actions">
-                    <button
-                      type="button"
-                      className="settings-action-btn"
-                      onClick={onExportBoards}
-                      disabled={boardsExporting}
-                    >
-                      <FontAwesomeIcon icon={faDownload} />
-                      {boardsExporting ? 'Exporting...' : 'Export boards'}
-                    </button>
-                    <button
-                      type="button"
-                      className="settings-action-btn"
-                      onClick={handleOpenImport}
-                      disabled={boardsImporting}
-                    >
-                      <FontAwesomeIcon icon={faUpload} />
-                      {boardsImporting ? 'Importing...' : 'Import boards'}
-                    </button>
-                  </div>
-                </div>
-                <div className="settings-section">
-                  <div className="settings-section-title">Display</div>
-                  <label className="settings-toggle">
-                    <input
-                      type="checkbox"
-                      data-testid="toggle-hide-export-row"
-                      checked={hideExportRow}
-                      onChange={(e) => onHideExportRowChange(e.target.checked)}
-                    />
-                    <span className="toggle-track" aria-hidden="true"></span>
-                    <span className="toggle-text">Hide export/copy buttons</span>
-                  </label>
-                </div>
-                {!importDialogOpen && importError && (
-                  <div className="settings-error">{importError}</div>
-                )}
-                <div className="settings-section">
-                  <div className="settings-section-title">Sidebar</div>
-                  <label className="settings-toggle">
-                    <input
-                      type="checkbox"
-                      data-testid="toggle-show-timestamps"
-                      checked={showTimestamps}
-                      onChange={(e) => onShowTimestampsChange(e.target.checked)}
-                    />
-                    <span className="toggle-track" aria-hidden="true"></span>
-                    <span className="toggle-text">Show timestamps in sidebar</span>
-                  </label>
-                </div>
-                <div className="settings-version-row">
-                  <span className="settings-version-label">Version</span>
-                  <button
-                    type="button"
-                    className="settings-version-link"
-                    onClick={handleOpenReleases}
-                  >
-                    {appVersion
-                      ? appVersion === 'Unknown'
-                        ? 'Unknown'
-                        : `v${appVersion}`
-                      : 'Loading...'}
-                    <FontAwesomeIcon icon={faArrowUpRightFromSquare} />
-                  </button>
-                </div>
-                <div className="modal-actions">
-                  <button
-                    className="cancel-btn"
-                    data-testid="close-settings-btn"
-                    onClick={closeSettings}
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+      <SettingsDialog
+        appVersion={appVersion}
+        boardsExporting={boardsExporting}
+        boardsImporting={boardsImporting}
+        hideExportRow={hideExportRow}
+        importDialogOpen={importDialogOpen}
+        importError={importError}
+        isOpen={settingsOpen}
+        onClose={closeSettings}
+        onExportBoards={onExportBoards}
+        onHideExportRowChange={onHideExportRowChange}
+        onOpenImport={handleOpenImport}
+        onOpenReleases={handleOpenReleases}
+        onShowTimestampsChange={onShowTimestampsChange}
+        showTimestamps={showTimestamps}
+      />
 
-      {importDialogOpen
-        ? createPortal(
-            <div
-              className="modal-overlay"
-              onClick={() => {
-                if (!boardsImporting) closeImportDialog();
-              }}
-            >
-              <div className="modal import-modal" onClick={(event) => event.stopPropagation()}>
-                <h3>Import boards</h3>
-                {importSourceName && <p className="modal-hint">Source: {importSourceName}</p>}
-                <div className="import-controls">
-                  <button
-                    type="button"
-                    className="import-control-btn"
-                    onClick={handleSelectAllImports}
-                    disabled={boardsImporting}
-                  >
-                    Select all
-                  </button>
-                  <button
-                    type="button"
-                    className="import-control-btn"
-                    onClick={handleClearAllImports}
-                    disabled={boardsImporting}
-                  >
-                    Clear
-                  </button>
-                </div>
-                <div className="import-list">
-                  {importBoards.map((entry) => {
-                    const isSelected = Boolean(importSelection[entry.key]);
-                    const hasId = Boolean(entry.id);
-                    const isDuplicate =
-                      hasId && (existingBoardIds.has(entry.id) || duplicateImportIds.has(entry.id));
-                    return (
-                      <label
-                        key={entry.key}
-                        className={`import-item ${isSelected ? 'selected' : ''} ${isDuplicate ? 'duplicate' : ''}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => handleToggleImportSelection(entry.key)}
-                          disabled={boardsImporting}
-                        />
-                        <span className="import-checkmark" aria-hidden="true"></span>
-                        <span className="import-item-name">{entry.name}</span>
-                        {isDuplicate && <span className="import-item-duplicate">Duplicate</span>}
-                      </label>
-                    );
-                  })}
-                </div>
-                <div className="import-summary">{selectedImportBoards.length} selected</div>
-                {importError && <div className="import-error">{importError}</div>}
-                <div className="modal-actions">
-                  <button
-                    className="cancel-btn"
-                    onClick={closeImportDialog}
-                    disabled={boardsImporting}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="save-btn"
-                    onClick={handleConfirmImport}
-                    disabled={boardsImporting || selectedImportBoards.length === 0}
-                  >
-                    Import
-                  </button>
-                </div>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+      <ImportDialog
+        boardsImporting={boardsImporting}
+        duplicateImportIds={duplicateImportIds}
+        error={importError}
+        existingBoardIds={existingBoardIds}
+        importBoards={importBoards}
+        importSelection={importSelection}
+        isOpen={importDialogOpen}
+        onClearAll={handleClearAllImports}
+        onClose={closeImportDialog}
+        onConfirm={handleConfirmImport}
+        onSelectAll={handleSelectAllImports}
+        onToggleSelection={handleToggleImportSelection}
+        selectedCount={selectedImportBoards.length}
+        sourceName={importSourceName}
+      />
 
-      {/* Drag Overlay - shows a preview following the cursor */}
-      <DragOverlay
-        dropAnimation={{
-          duration: 200,
-          easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)',
-        }}
-      >
-        {activeItem ? (
-          'items' in activeItem ? (
-            <FolderOverlay folder={activeItem as BoardFolder} />
-          ) : (
-            <BoardOverlay
-              board={activeItem as Board}
-              formatDate={formatDate}
-              showTimestamps={showTimestamps}
-            />
-          )
-        ) : null}
-      </DragOverlay>
-
-      {/* Thumbnail hover preview portal */}
-      {thumbnailPreview && thumbnails[thumbnailPreview.boardId]
-        ? createPortal(
-            <div
-              className="thumbnail-preview"
-              style={{
-                position: 'fixed',
-                top: thumbnailPreview.anchorRect.top + thumbnailPreview.anchorRect.height / 2,
-                left: thumbnailPreview.anchorRect.right + 12,
-                transform: 'translateY(-50%)',
-              }}
-            >
-              <img
-                src={thumbnails[thumbnailPreview.boardId]}
-                alt="Board preview"
-                className="thumbnail-preview-img"
-              />
-            </div>,
-            document.body,
-          )
-        : null}
-
-      {/* Context menu portal */}
-      {activeMenu && menuContent
-        ? createPortal(
-            <div
-              ref={menuRef}
-              className="board-menu board-menu-portal"
-              style={{ position: 'fixed', ...menuStyle }}
-            >
-              {menuContent}
-            </div>,
-            document.body,
-          )
-        : null}
+      <BoardDragOverlay
+        activeItem={activeItem}
+        formatDate={formatDate}
+        showTimestamps={showTimestamps}
+      />
+      <ThumbnailPreviewPortal preview={thumbnailPreview} thumbnails={thumbnails} />
+      <ContextMenuPortal activeMenu={Boolean(activeMenu)} menuRef={menuRef} style={menuStyle}>
+        {menuContent}
+      </ContextMenuPortal>
     </DndContext>
   );
 }
