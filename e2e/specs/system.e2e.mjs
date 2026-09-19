@@ -12,6 +12,7 @@ import {
   duplicateBoard,
   filterBoards,
   openBoardFromCommandPalette,
+  openSearchFromCommandPalette,
   openSettings,
   openSettingsFromCommandPalette,
   rememberEditorInstance,
@@ -124,5 +125,8 @@ describe('System suite', () => {
     await openBoardFromCommandPalette(secondBoardName);
     await openSettingsFromCommandPalette();
     await closeSettings();
+    await setSidebarCollapsed(true);
+    await openSearchFromCommandPalette();
+    await setSidebarCollapsed(false);
   });
 });

@@ -14,6 +14,7 @@ const SELECTORS = {
   commandPaletteInput: '[data-testid="command-palette-input"]',
   commandPaletteCreateBoardItem: '[data-testid="command-palette-item-create-board"]',
   commandPaletteOpenBoardItem: '[data-testid="command-palette-item-open-board"]',
+  commandPaletteSearchBoardsItem: '[data-testid="command-palette-item-search-boards"]',
   commandPaletteOpenSettingsItem: '[data-testid="command-palette-item-open-settings"]',
 };
 
@@ -257,6 +258,25 @@ export async function openSettingsFromCommandPalette() {
 
   const settingsModal = await $(SELECTORS.settingsModal);
   await settingsModal.waitForDisplayed({ timeout: 10000 });
+}
+
+export async function openSearchFromCommandPalette() {
+  await openCommandPalette();
+
+  const paletteInput = await $(SELECTORS.commandPaletteInput);
+  await paletteInput.waitForDisplayed({ timeout: 10000 });
+  await paletteInput.setValue('search boards');
+
+  const searchBoardsItem = await $(SELECTORS.commandPaletteSearchBoardsItem);
+  await searchBoardsItem.waitForDisplayed({ timeout: 10000 });
+  await browser.keys('Enter');
+
+  const searchInput = await $(SELECTORS.boardSearchInput);
+  await searchInput.waitForDisplayed({ timeout: 10000 });
+  await browser.waitUntil(async () => searchInput.isFocused(), {
+    timeout: 10000,
+    timeoutMsg: 'Expected the sidebar board search to receive focus.',
+  });
 }
 
 export async function openBoardFromCommandPalette(name) {

@@ -67,6 +67,7 @@ interface CommandPaletteCommandsConfig {
   renameBoard: AppController['renameBoard'];
   deleteBoard: AppController['deleteBoard'];
   duplicateBoard: AppController['duplicateBoard'];
+  requestOpenBoardSearch: () => void;
   requestOpenSettings: () => void;
   requestOpenImportBoards: () => void;
   sidebarCollapsed: AppController['sidebarCollapsed'];
@@ -264,6 +265,7 @@ const createCommandPaletteCommands = ({
   renameBoard,
   deleteBoard,
   duplicateBoard,
+  requestOpenBoardSearch,
   requestOpenSettings,
   requestOpenImportBoards,
   sidebarCollapsed,
@@ -305,6 +307,13 @@ const createCommandPaletteCommands = ({
       action: createCreateBoardAction(createBoard),
     },
     ...createBoardCommandGroupCommands(hasBoards, boardSearchEmptyState, boardCommands),
+    {
+      id: 'search-boards',
+      label: 'Search boards',
+      description: 'Open and focus the sidebar board filter',
+      keywords: 'search boards filter find sidebar',
+      action: requestOpenBoardSearch,
+    },
     {
       id: 'export-boards',
       label: 'Export boards',
@@ -432,6 +441,13 @@ const useCommandPaletteController = ({
     window.dispatchEvent(new CustomEvent('boardlist:open-settings'));
   }, []);
 
+  const requestOpenBoardSearch = useCallback(() => {
+    if (sidebarCollapsed) {
+      toggleSidebar();
+    }
+    window.dispatchEvent(new CustomEvent('boardlist:open-search'));
+  }, [sidebarCollapsed, toggleSidebar]);
+
   const requestOpenImportBoards = useCallback(() => {
     window.dispatchEvent(new CustomEvent('boardlist:import-boards'));
   }, []);
@@ -448,6 +464,7 @@ const useCommandPaletteController = ({
         renameBoard,
         deleteBoard,
         duplicateBoard,
+        requestOpenBoardSearch,
         requestOpenSettings,
         requestOpenImportBoards,
         sidebarCollapsed,
@@ -477,6 +494,7 @@ const useCommandPaletteController = ({
       handleExportSvg,
       handleSelectBoard,
       renameBoard,
+      requestOpenBoardSearch,
       requestOpenImportBoards,
       requestOpenSettings,
       sidebarCollapsed,

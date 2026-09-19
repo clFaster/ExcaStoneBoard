@@ -650,10 +650,10 @@ export function BoardList({
   // Effects
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    if (isSearchOpen) {
+    if (isSearchOpen && !isCollapsed) {
       searchInputRef.current?.focus();
     }
-  }, [isSearchOpen]);
+  }, [isCollapsed, isSearchOpen]);
 
   useEffect(() => {
     if (!activeMenu) return;
@@ -733,6 +733,18 @@ export function BoardList({
 
     return () => {
       mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleOpenSearch = () => {
+      searchInputRef.current?.focus();
+      setIsSearchOpen(true);
+    };
+
+    window.addEventListener('boardlist:open-search', handleOpenSearch);
+    return () => {
+      window.removeEventListener('boardlist:open-search', handleOpenSearch);
     };
   }, []);
 
